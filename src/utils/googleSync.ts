@@ -3,7 +3,7 @@ import { Student, AttendanceRecord } from '../types/attendance';
 // 구글 Apps Script 배포 후 생성된 웹 앱 URL (환경 변수 또는 기본값)
 export const GOOGLE_SHEETS_API_URL =
   (import.meta as any).env?.VITE_GOOGLE_SHEETS_API_URL ||
-  '';
+  'https://script.google.com/macros/s/AKfycbxIr2Kv-D8uV7Ke8Dcdua7IYKV-KRUuR9pBobGPJesIlaXuyrEJMFCjhwzS2Tunc5RE/exec';
 
 export interface AppSyncPayload {
   students: Student[];
