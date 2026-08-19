@@ -45,9 +45,9 @@ import {
   getTodayDateStr,
   isStudentAttendanceLocked
 } from './utils/attendanceHelpers';
+import { RefreshCw } from 'lucide-react';
 
 export default function App() {
-  // Helper to get initial role from URL param, hash or storage
   const getInitialRole = (): UserRole => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -55,7 +55,6 @@ export default function App() {
       if (urlRole === 'admin' || urlRole === 'teacher' || urlRole === 'student') {
         return urlRole as UserRole;
       }
-
       const hash = window.location.hash.replace(/^#/, '');
       if (hash === 'admin' || hash === 'teacher' || hash === 'student') {
         return hash as UserRole;
@@ -96,7 +95,6 @@ export default function App() {
           urlRole = hashParams.get('role');
         }
       }
-
       if (urlRole === 'admin' || urlRole === 'teacher' || urlRole === 'student') {
         setUserRole(urlRole as UserRole);
         saveUserRole(urlRole as UserRole);
@@ -135,11 +133,14 @@ export default function App() {
     loadAttendanceRecords()
   );
 
-  const isInitialRemoteLoad = useRef(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncText, setLastSyncText] = useState<string>('');
+  const isInitialRemoteLoadDone = useRef(false);
 
-  // 1. 앱 시작 시 구글 스프레드시트에서 최신 원격 데이터 로드 (다른 기기 동기화)
-  useEffect(() => {
-    async function loadRemoteData() {
+  // 구글 시트에서 최신 데이터 가져오기 함수
+  const refreshRemoteData = async (showLoading = true) => {
+    if (showLoading) setIsSyncing(true);
+    try {
       const remote = await fetchFromGoogleSheets();
       if (remote) {
         if (remote.students && remote.students.length > 0) {
@@ -150,28 +151,40 @@ export default function App() {
           setRecords(remote.records);
           saveAttendanceRecords(remote.records);
         }
+        const now = new Date();
+        setLastSyncText(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`);
       }
-      isInitialRemoteLoad.current = false;
+    } finally {
+      if (showLoading) setIsSyncing(false);
+      isInitialRemoteLoadDone.current = true;
     }
-    loadRemoteData();
+  };
+
+  // 1. 앱 시작 시 최신 원격 데이터 동기화
+  useEffect(() => {
+    refreshRemoteData(true);
   }, []);
 
-  // 2. 학생 또는 출결이 수정될 때마다 구글 스프레드시트로 자동 전송 (실시간 저장)
+  // 2. 15초마다 백그라운드 자동 동기화 (다른 기기 변경사항 실시간 반영)
   useEffect(() => {
-    saveStudents(students);
-    saveAttendanceRecords(records);
+    const interval = setInterval(() => {
+      refreshRemoteData(false);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, []);
 
-    // 초기 로딩 시 불필요한 덮어쓰기 방지 후 변경 시 자동 전송
-    const timer = setTimeout(() => {
-      syncToGoogleSheets({ students, records });
-    }, 600);
-
-    return () => clearTimeout(timer);
-  }, [students, records]);
+  // 3. 현재 기기에서 변경 시 구글 시트로 자동 전송
+  const pushUpdateToRemote = (newStudents: Student[], newRecords: Record<string, AttendanceRecord>) => {
+    if (!isInitialRemoteLoadDone.current) return;
+    saveStudents(newStudents);
+    saveAttendanceRecords(newRecords);
+    syncToGoogleSheets({ students: newStudents, records: newRecords });
+  };
 
   const handleUpdateStudents = (newStudents: Student[]) => {
     const sorted = sortStudents(newStudents, [3, 2, 1], true);
     setStudents(sorted);
+    pushUpdateToRemote(sorted, records);
   };
 
   const [daysConfig, setDaysConfig] = useState<{
@@ -183,10 +196,7 @@ export default function App() {
   }));
 
   const allDaysInMonth = daysConfig[session] || [];
-
-  const activeDays = useMemo(() => {
-    return allDaysInMonth.filter(d => d.enabled);
-  }, [allDaysInMonth]);
+  const activeDays = useMemo(() => allDaysInMonth.filter(d => d.enabled), [allDaysInMonth]);
 
   const [selectedDateStr, setSelectedDateStr] = useState<string>(() => {
     const initNightActive = generateMonthDays(2026, 8, 'morning', [19, 20, 21, 24, 25, 26, 27, 28, 31]).filter(d => d.enabled);
@@ -225,24 +235,15 @@ export default function App() {
   const handleSetYearMonth = (newYear: number, newMonth: number) => {
     setYear(newYear);
     setMonth(newMonth);
-
     const newMorningDays = (newMonth === 8 && newYear === 2026)
       ? generateMonthDays(newYear, newMonth, 'morning', [19, 20, 21, 24, 25, 26, 27, 28, 31])
       : generateMonthDays(newYear, newMonth, 'morning');
-
     const newNightDays = (newMonth === 8 && newYear === 2026)
       ? generateMonthDays(newYear, newMonth, 'night', [20, 21, 24, 25, 27, 28, 31])
       : generateMonthDays(newYear, newMonth, 'night');
-
-    setDaysConfig({
-      morning: newMorningDays,
-      night: newNightDays,
-    });
-
+    setDaysConfig({ morning: newMorningDays, night: newNightDays });
     const activeForCurrent = (session === 'morning' ? newMorningDays : newNightDays).filter(d => d.enabled);
-    if (activeForCurrent.length > 0) {
-      setSelectedDateStr(activeForCurrent[0].dateStr);
-    }
+    if (activeForCurrent.length > 0) setSelectedDateStr(activeForCurrent[0].dateStr);
   };
 
   const handleUpdateRecord = (
@@ -253,7 +254,6 @@ export default function App() {
     checkInTime?: string
   ) => {
     if (userRole === 'teacher') return;
-
     if (userRole === 'student') {
       const lockCheck = isStudentAttendanceLocked(session, dateStr);
       if (lockCheck.isLocked) return;
@@ -263,74 +263,63 @@ export default function App() {
     const now = new Date();
     const currentTimestamp = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-    setRecords(prev => {
-      let finalCheckInTime: string | undefined = undefined;
-      if (status !== 'NONE') {
-        finalCheckInTime = checkInTime !== undefined 
-          ? checkInTime 
-          : (prev[key]?.checkInTime || currentTimestamp);
-      }
+    let finalCheckInTime: string | undefined = undefined;
+    if (status !== 'NONE') {
+      finalCheckInTime = checkInTime !== undefined ? checkInTime : (records[key]?.checkInTime || currentTimestamp);
+    }
 
-      return {
-        ...prev,
-        [key]: {
-          status,
-          reason: reason !== undefined ? reason : prev[key]?.reason,
-          checkInTime: finalCheckInTime,
-        },
-      };
-    });
+    const updated = {
+      ...records,
+      [key]: {
+        status,
+        reason: reason !== undefined ? reason : records[key]?.reason,
+        checkInTime: finalCheckInTime,
+      },
+    };
+
+    setRecords(updated);
+    pushUpdateToRemote(students, updated);
   };
 
-  const handleBatchUpdateDay = (
-    dateStr: string,
-    status: AttendanceStatus,
-    gradeFilter?: number
-  ) => {
+  const handleBatchUpdateDay = (dateStr: string, status: AttendanceStatus, gradeFilter?: number) => {
     if (userRole === 'teacher' || userRole === 'student') return;
-
     const now = new Date();
     const currentTimestamp = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-
-    setRecords(prev => {
-      const updated = { ...prev };
-      students
-        .filter(st => st.active && !isStudentExcluded(st, session, dateStr) && (gradeFilter === undefined || st.grade === gradeFilter))
-        .forEach(st => {
-          const key = getRecordKey(st.id, session, dateStr);
-          updated[key] = {
-            status,
-            reason: prev[key]?.reason,
-            checkInTime: status !== 'NONE' ? (prev[key]?.checkInTime || currentTimestamp) : undefined,
-          };
-        });
-      return updated;
-    });
+    const updated = { ...records };
+    students
+      .filter(st => st.active && !isStudentExcluded(st, session, dateStr) && (gradeFilter === undefined || st.grade === gradeFilter))
+      .forEach(st => {
+        const key = getRecordKey(st.id, session, dateStr);
+        updated[key] = {
+          status,
+          reason: records[key]?.reason,
+          checkInTime: status !== 'NONE' ? (records[key]?.checkInTime || currentTimestamp) : undefined,
+        };
+      });
+    setRecords(updated);
+    pushUpdateToRemote(students, updated);
   };
 
   const handleFillDayAbsent = (dateStr: string, gradeFilter?: number) => {
     if (userRole === 'teacher' || userRole === 'student') return;
-
     const now = new Date();
     const currentTimestamp = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-
-    setRecords(prev => {
-      const updated = { ...prev };
-      students
-        .filter(st => st.active && !isStudentExcluded(st, session, dateStr) && (gradeFilter === undefined || st.grade === gradeFilter))
-        .forEach(st => {
-          const key = getRecordKey(st.id, session, dateStr);
-          const currentStatus = prev[key]?.status;
-          if (!currentStatus || currentStatus === 'NONE') {
-            updated[key] = {
-              status: 'ABSENT',
-              reason: prev[key]?.reason,
-              checkInTime: currentTimestamp,
-            };
-          }
-        });
-      return updated;
-    });
+    const updated = { ...records };
+    students
+      .filter(st => st.active && !isStudentExcluded(st, session, dateStr) && (gradeFilter === undefined || st.grade === gradeFilter))
+      .forEach(st => {
+        const key = getRecordKey(st.id, session, dateStr);
+        const currentStatus = records[key]?.status;
+        if (!currentStatus || currentStatus === 'NONE') {
+          updated[key] = {
+            status: 'ABSENT',
+            reason: records[key]?.reason,
+            checkInTime: currentTimestamp,
+          };
+        }
+      });
+    setRecords(updated);
+    pushUpdateToRemote(students, updated);
   };
 
   const handleToggleDay = (dateStr: string) => {
@@ -347,35 +336,22 @@ export default function App() {
             ? generateMonthDays(year, month, 'morning', [19, 20, 21, 24, 25, 26, 27, 28, 31])
             : generateMonthDays(year, month, 'night', [20, 21, 24, 25, 27, 28, 31]))
         : generateMonthDays(year, month, session);
-
-      setDaysConfig(prev => ({
-        ...prev,
-        [session]: stdDays,
-      }));
+      setDaysConfig(prev => ({ ...prev, [session]: stdDays }));
       return;
     }
-
     setDaysConfig(prev => ({
       ...prev,
       [session]: prev[session].map(d => {
         let isEn = false;
         if (preset === 'weekdays') {
-          if (session === 'night') {
-            isEn = d.dayOfWeek !== '토' && d.dayOfWeek !== '일' && d.dayOfWeek !== '수';
-          } else {
-            isEn = d.dayOfWeek !== '토' && d.dayOfWeek !== '일';
-          }
+          isEn = session === 'night' 
+            ? (d.dayOfWeek !== '토' && d.dayOfWeek !== '일' && d.dayOfWeek !== '수')
+            : (d.dayOfWeek !== '토' && d.dayOfWeek !== '일');
         } else if (preset === 'sample8') {
-          if (session === 'night') {
-            isEn = [20, 21, 24, 25, 27, 28, 31].includes(d.dayNum);
-          } else {
-            isEn = [19, 20, 21, 24, 25, 26, 27, 28, 31].includes(d.dayNum);
-          }
-        } else if (preset === 'all') {
-          isEn = true;
-        } else if (preset === 'none') {
-          isEn = false;
-        }
+          isEn = session === 'night'
+            ? [20, 21, 24, 25, 27, 28, 31].includes(d.dayNum)
+            : [19, 20, 21, 24, 25, 26, 27, 28, 31].includes(d.dayNum);
+        } else if (preset === 'all') isEn = true;
         return { ...d, enabled: isEn };
       }),
     }));
@@ -383,51 +359,63 @@ export default function App() {
 
   const handleClearDate = (dateStr: string, gradeFilter?: number, targetSession?: SessionType | 'both') => {
     const sessionToClear = targetSession || session;
-    setRecords(prev => {
-      const updated = { ...prev };
-      students
-        .filter(st => gradeFilter === undefined || st.grade === gradeFilter)
-        .forEach(st => {
-          if (sessionToClear === 'both') {
-            const keyMorning = getRecordKey(st.id, 'morning', dateStr);
-            const keyNight = getRecordKey(st.id, 'night', dateStr);
-            delete updated[keyMorning];
-            delete updated[keyNight];
-          } else {
-            const key = getRecordKey(st.id, sessionToClear, dateStr);
-            delete updated[key];
-          }
-        });
-      return updated;
-    });
+    const updated = { ...records };
+    students
+      .filter(st => gradeFilter === undefined || st.grade === gradeFilter)
+      .forEach(st => {
+        if (sessionToClear === 'both') {
+          delete updated[getRecordKey(st.id, 'morning', dateStr)];
+          delete updated[getRecordKey(st.id, 'night', dateStr)];
+        } else {
+          delete updated[getRecordKey(st.id, sessionToClear, dateStr)];
+        }
+      });
+    setRecords(updated);
+    pushUpdateToRemote(students, updated);
   };
 
   const handleClearMonthSession = (targetYear: number, targetMonth: number, targetSession: SessionType | 'both') => {
     const monthPrefix = `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
-    setRecords(prev => {
-      const updated = { ...prev };
-      Object.keys(updated).forEach(key => {
-        const parts = key.split('_');
-        if (parts.length >= 3) {
-          const keySession = parts[1] as SessionType;
-          const keyDate = parts[2];
-          const isMatchingSession = targetSession === 'both' || keySession === targetSession;
-          if (isMatchingSession && keyDate.startsWith(monthPrefix)) {
-            delete updated[key];
-          }
+    const updated = { ...records };
+    Object.keys(updated).forEach(key => {
+      const parts = key.split('_');
+      if (parts.length >= 3) {
+        const keySession = parts[1] as SessionType;
+        const keyDate = parts[2];
+        const isMatchingSession = targetSession === 'both' || keySession === targetSession;
+        if (isMatchingSession && keyDate.startsWith(monthPrefix)) {
+          delete updated[key];
         }
-      });
-      return updated;
+      }
     });
+    setRecords(updated);
+    pushUpdateToRemote(students, updated);
   };
 
   const handleClearAll = () => {
     setRecords({});
+    pushUpdateToRemote(students, {});
   };
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
       
+      {/* Realtime Sync Status Indicator */}
+      <div className="bg-slate-900 text-slate-300 text-3xs px-4 py-1 flex items-center justify-between border-b border-slate-800">
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-amber-400 animate-spin' : 'bg-emerald-400'}`} />
+          <span>{isSyncing ? '구글 스프레드시트 동기화 중...' : '구글 시트 실시간 연결됨'}</span>
+          {lastSyncText && <span className="opacity-60">(마지막 동기화: {lastSyncText})</span>}
+        </div>
+        <button 
+          onClick={() => refreshRemoteData(true)} 
+          className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer text-indigo-300 font-bold"
+        >
+          <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+          <span>지금 동기화</span>
+        </button>
+      </div>
+
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
