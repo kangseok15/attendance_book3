@@ -364,7 +364,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
                   className={`px-3 py-1.5 rounded-lg transition-all ${
                     selectedGrade === g
                       ? 'bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 shadow-xs font-semibold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                   }`}
                 >
                   {g}학년
@@ -496,16 +496,17 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
         )}
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs bg-white dark:bg-slate-900">
+      {/* Main Grid Table (최대 높이 70vh 스크롤 및 thead 틀 고정 적용) */}
+      <div className="overflow-auto max-h-[70vh] rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs bg-white dark:bg-slate-900 relative">
         <table className="w-full text-xs border-collapse text-center">
-          <thead>
+          <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-800 shadow-xs">
             <tr className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold border-b border-slate-200 dark:border-slate-700">
               <th colSpan={5 + activeDays.length + 4} className="py-3 text-base tracking-wider font-extrabold uppercase">
                 숭신고등학교 미래인재반 {month}월 {sessionLabel} 자율학습 출석부
               </th>
             </tr>
 
-            <tr className="bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 font-bold border-b border-slate-200 dark:border-slate-700">
+            <tr className="bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold border-b border-slate-200 dark:border-slate-700">
               <th className="w-10 py-2 px-1 border-r border-slate-200 dark:border-slate-700">연번</th>
               <th className="w-9 py-2 px-1 border-r border-slate-200 dark:border-slate-700">학년</th>
               <th className="w-9 py-2 px-1 border-r border-slate-200 dark:border-slate-700">반</th>
@@ -568,7 +569,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
               </th>
             </tr>
 
-            <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 font-medium border-b-2 border-slate-300 dark:border-slate-600">
+            <tr className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium border-b-2 border-slate-300 dark:border-slate-600">
               <th className="py-1 px-1 border-r border-slate-200 dark:border-slate-700"></th>
               <th className="py-1 px-1 border-r border-slate-200 dark:border-slate-700"></th>
               <th className="py-1 px-1 border-r border-slate-200 dark:border-slate-700"></th>
@@ -710,7 +711,6 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
                           {stats.rate}
                         </td>
 
-                        {/* Academy Days - 관리자만 클릭 수정 가능 / 교사 및 학생은 클릭 방지 */}
                         <td className="py-1 px-1 text-center select-none whitespace-nowrap">
                           <div className="inline-flex items-center gap-1 justify-center">
                             {WEEKDAYS.map(dayName => {
