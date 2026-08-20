@@ -96,10 +96,11 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
   };
 
   // Toggle student's night self-study day (월, 화, 수, 목, 금)
-  const handleToggleAcademyDay = (studentId: string, dayName: string) => {
-    if (userRole === 'teacher') {
-      showTeacherWarning();
-      return;
+const handleToggleAcademyDay = (studentId: string, dayName: string) => {
+  if (userRole === 'teacher' || userRole === 'student') {
+    setRoleWarning('학원 가는 요일은 관리자(선생님)만 수정할 수 있습니다.');
+    setTimeout(() => setRoleWarning(''), 3000);
+    return;
     }
     if (!onUpdateStudents) return;
     const updated = students.map(s => {
