@@ -3,7 +3,7 @@ import {
   Student, 
   SessionType, 
   DayConfig, 
-  AttendanceStatus,
+  AttendanceStatus, 
   AttendanceRecord 
 } from '../types/attendance';
 import { 
@@ -95,12 +95,12 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
     setTimeout(() => setRoleWarning(''), 3000);
   };
 
-  // Toggle student's night self-study day (월, 화, 수, 목, 금)
-const handleToggleAcademyDay = (studentId: string, dayName: string) => {
-  if (userRole === 'teacher' || userRole === 'student') {
-    setRoleWarning('학원 가는 요일은 관리자(선생님)만 수정할 수 있습니다.');
-    setTimeout(() => setRoleWarning(''), 3000);
-    return;
+  // Toggle student's night self-study day (월, 화, 수, 목, 금) - 관리자만 수정 가능
+  const handleToggleAcademyDay = (studentId: string, dayName: string) => {
+    if (userRole === 'teacher' || userRole === 'student') {
+      setRoleWarning('학원 가는 요일은 관리자(선생님)만 수정할 수 있습니다.');
+      setTimeout(() => setRoleWarning(''), 3000);
+      return;
     }
     if (!onUpdateStudents) return;
     const updated = students.map(s => {
@@ -120,10 +120,8 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
     onUpdateStudents(updated);
   };
 
-  // Grade ordering based on month (Nov/Dec: 2->1->3, otherwise 3->2->1)
   const gradeOrder = getGradeOrder(month);
 
-  // Filter and sort students (strictly by grade, classNum, studentNum)
   const filteredStudents = React.useMemo(() => {
     const list = students.filter(s => {
       if (!s.active) return false;
@@ -144,16 +142,13 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
   const effectiveToday = todayDateStr || getTodayDateStr();
 
   const handleCellClick = (student: Student, day: DayConfig) => {
-    // 담임 교사 모드에서는 입력 불가
     if (userRole === 'teacher') {
       showTeacherWarning();
       return;
     }
-    // 3학년 11월 17일 이후 제외 및 야간자율학습 미신청 요일(음영) 클릭 불가
     if (isStudentExcluded(student, session, day.dateStr, day.dayOfWeek)) {
       return;
     }
-    // 학생 모드: 야자는 지난 날짜 수정 불가, 아침은 당일 09:00 이후 및 지난 날짜 수정 불가 (관리자는 제한 없음)
     if (userRole === 'student') {
       const lockCheck = isStudentAttendanceLocked(session, day.dateStr);
       if (lockCheck.isLocked) {
@@ -168,7 +163,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
     
     onUpdateRecord(student.id, day.dateStr, nextStatus, undefined, checkInTime);
 
-    // 클릭 시 시간과 상태를 즉시 확인할 수 있도록 피드백 안내
     if (nextStatus !== 'NONE') {
       const meta = STATUS_META[nextStatus];
       setCellFeedback({
@@ -192,7 +186,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
     if (isStudentExcluded(student, session, day.dateStr, day.dayOfWeek)) {
       return;
     }
-    // 학생 모드: 수정 잠금 확인 (관리자는 제한 없음)
     if (userRole === 'student') {
       const lockCheck = isStudentAttendanceLocked(session, day.dateStr);
       if (lockCheck.isLocked) {
@@ -214,16 +207,12 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
     });
   };
 
-  // Group filtered students by grade
   const grades = selectedGrade === 'all' ? gradeOrder : [selectedGrade];
 
-  // 오늘 날짜 계산 및 통계 대상일 설정
   const defaultStatDay = activeDays.find(d => d.dateStr === effectiveToday) || activeDays[0];
   const [selectedStatDateStr, setSelectedStatDateStr] = useState<string>('');
-
   const currentStatDay = activeDays.find(d => d.dateStr === (selectedStatDateStr || defaultStatDay?.dateStr)) || defaultStatDay;
 
-  // 야간 자율학습 오늘의 학년별 실제 출석인원 통계 계산 (출석○, 지각△, 조퇴⊘ 모두 1명 출석 처리)
   const nightAttendanceStats = React.useMemo(() => {
     if (!currentStatDay) {
       return { g1: 0, g2: 0, g3: 0, total: 0 };
@@ -253,17 +242,11 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
       else if (st.grade === 3) g3 += score;
     });
 
-    return {
-      g1,
-      g2,
-      g3,
-      total: g1 + g2 + g3,
-    };
+    return { g1, g2, g3, total: g1 + g2 + g3 };
   }, [students, currentStatDay, records]);
 
   return (
     <div className="space-y-4">
-      {/* Cell Click Timestamp Feedback Toast */}
       {cellFeedback && (
         <div className="fixed bottom-6 right-6 z-50 bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 px-4 py-2.5 rounded-2xl shadow-xl border border-slate-700 dark:border-slate-300 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-3 duration-200">
           <div className="w-8 h-8 rounded-xl bg-indigo-500 text-white flex items-center justify-center font-bold text-sm shrink-0">
@@ -284,7 +267,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
         </div>
       )}
 
-      {/* Role Notice & Warning Banners */}
       {roleWarning && (
         <div className="p-3 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 rounded-xl text-xs font-bold text-rose-700 dark:text-rose-300 flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
           <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
@@ -306,16 +288,13 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
         <div className="p-2.5 bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 rounded-xl text-xs font-semibold text-amber-800 dark:text-amber-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-amber-500" />
-            <span><strong>학생 모드</strong>: 본인 출결 체크 및 우측 '학원 가는 요일' 버튼을 눌러 학원 일정을 입력할 수 있습니다.</span>
+            <span><strong>학생 모드</strong>: 본인 출결 체크가 가능합니다. (학원 가는 요일 수정은 관리자 선생님께 문의)</span>
           </div>
-          <span className="text-[11px] bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-md font-bold">출결&학원 입력</span>
+          <span className="text-[11px] bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-md font-bold">출결 체크</span>
         </div>
       )}
 
-      {/* Controls & Filter Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs">
-        
-        {/* Title, Session Switcher and Subtitle */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
             <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
@@ -325,7 +304,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
               </span>
             </h2>
 
-            {/* Direct Session Switcher (Morning <-> Night) */}
             {onSessionChange && (
               <div className="inline-flex p-0.5 bg-slate-100 dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600 text-xs font-bold">
                 <button
@@ -367,9 +345,7 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
             )}
           </p>
 
-          {/* Grade filter & search */}
           <div className="flex flex-wrap items-center gap-2.5 mt-3">
-            {/* Grade filter pills */}
             <div className="inline-flex p-1 bg-slate-100 dark:bg-slate-700/60 rounded-xl text-xs font-medium border border-slate-200 dark:border-slate-700">
               <button
                 onClick={() => setSelectedGrade('all')}
@@ -388,7 +364,7 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
                   className={`px-3 py-1.5 rounded-lg transition-all ${
                     selectedGrade === g
                       ? 'bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 shadow-xs font-semibold'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                   }`}
                 >
                   {g}학년
@@ -396,7 +372,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
               ))}
             </div>
 
-            {/* Search box */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -423,7 +398,7 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
                 type="button"
                 onClick={onOpenClearModal}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 rounded-xl border border-rose-200 dark:border-rose-800/80 transition-colors shadow-2xs cursor-pointer"
-                title="출결 기록 비우기 (특정 날짜 또는 전체 초기화)"
+                title="출결 기록 비우기"
               >
                 <Eraser className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
                 <span className="font-bold">출결 비우기</span>
@@ -432,7 +407,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
           </div>
         </div>
 
-        {/* 야간 자율학습 전용: 해당 날짜(오늘) 참석인원 통계 카드 (가독성 특화 디자인) */}
         {session === 'night' && currentStatDay && (
           <div className="bg-slate-900 text-white rounded-2xl p-3.5 border border-slate-700 shadow-sm flex flex-col justify-between gap-2.5 shrink-0 self-stretch sm:self-auto sm:min-w-[330px]">
             <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-2">
@@ -447,7 +421,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
                   value={currentStatDay.dateStr}
                   onChange={(e) => setSelectedStatDateStr(e.target.value)}
                   className="text-3xs font-bold px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 cursor-pointer focus:outline-hidden hover:border-slate-500"
-                  title="날짜 선택"
                 >
                   {activeDays.map(d => (
                     <option key={`stat-day-${d.dateStr}`} value={d.dateStr}>
@@ -458,7 +431,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
               )}
             </div>
 
-            {/* 통계 목록 (가독성 높은 2x2 그리드) */}
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700/60">
                 <span className="text-slate-300 font-medium">1학년 출석인원</span>
@@ -479,10 +451,8 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
             </div>
           </div>
         )}
-
       </div>
 
-      {/* Legend Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 bg-white dark:bg-slate-800 rounded-2xl text-xs text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs">
         <div className="flex items-center gap-3.5 flex-wrap">
           <span className="font-bold text-slate-800 dark:text-slate-200">출결 기호:</span>
@@ -499,7 +469,7 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
             <span className="font-bold text-rose-600 dark:text-rose-400">결석 (또는 빈칸)</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="w-5 h-5 rounded bg-purple-100 text-purple-800 text-center leading-5 text-xs font-black" title="동그라미에 슬래시 결합">⊘</span>
+            <span className="w-5 h-5 rounded bg-purple-100 text-purple-800 text-center leading-5 text-xs font-black">⊘</span>
             <span className="font-bold text-purple-700 dark:text-purple-300">조퇴 (⊘)</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
@@ -508,7 +478,7 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
           </span>
           <span className="inline-flex items-center gap-1.5 border-l border-slate-300 dark:border-slate-600 pl-3">
             <span className="w-5 h-5 rounded bg-slate-400 dark:bg-slate-600 border border-slate-500 text-slate-100 text-center leading-5 text-xs font-bold shadow-2xs">/</span>
-            <span className="font-bold text-slate-700 dark:text-slate-300">진회색 음영: 미신청 요일/수능후 제외 (입력 불가)</span>
+            <span className="font-bold text-slate-700 dark:text-slate-300">진회색 음영: 미신청 요일/수능후 제외</span>
           </span>
         </div>
         
@@ -526,18 +496,15 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
         )}
       </div>
 
-      {/* Main Grid Table (Bento styled attendance sheet) */}
       <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs bg-white dark:bg-slate-900">
         <table className="w-full text-xs border-collapse text-center">
           <thead>
-            {/* Title Header Row inside table */}
             <tr className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold border-b border-slate-200 dark:border-slate-700">
               <th colSpan={5 + activeDays.length + 4} className="py-3 text-base tracking-wider font-extrabold uppercase">
                 숭신고등학교 미래인재반 {month}월 {sessionLabel} 자율학습 출석부
               </th>
             </tr>
 
-            {/* Column Headers Row 1 (Date numbers) */}
             <tr className="bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 font-bold border-b border-slate-200 dark:border-slate-700">
               <th className="w-10 py-2 px-1 border-r border-slate-200 dark:border-slate-700">연번</th>
               <th className="w-9 py-2 px-1 border-r border-slate-200 dark:border-slate-700">학년</th>
@@ -545,7 +512,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
               <th className="w-10 py-2 px-1 border-r border-slate-200 dark:border-slate-700">번호</th>
               <th className="w-20 py-2 px-2 border-r-2 border-slate-300 dark:border-slate-600 text-left font-bold">이름</th>
 
-              {/* Dynamic Active Days Columns */}
               {activeDays.map(day => {
                 const studentLock = userRole === 'student' ? isStudentAttendanceLocked(session, day.dateStr) : { isLocked: false };
                 const isLockedForStudent = studentLock.isLocked;
@@ -591,7 +557,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
                 );
               })}
 
-              {/* Stats & Notes / Academy Days Columns */}
               <th className="w-10 py-2 px-1 border-l-2 border-slate-300 dark:border-slate-600 border-r border-slate-200 dark:border-slate-700 bg-emerald-50/70 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 font-bold">출석</th>
               <th className="w-10 py-2 px-1 border-r border-slate-200 dark:border-slate-700 bg-rose-50/70 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 font-bold">결석</th>
               <th className="w-12 py-2 px-1 border-r border-slate-200 dark:border-slate-700 bg-amber-50/70 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 font-bold">출석률</th>
@@ -603,7 +568,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
               </th>
             </tr>
 
-            {/* Column Headers Row 2 (Day of week: 수, 목, 금...) */}
             <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 font-medium border-b-2 border-slate-300 dark:border-slate-600">
               <th className="py-1 px-1 border-r border-slate-200 dark:border-slate-700"></th>
               <th className="py-1 px-1 border-r border-slate-200 dark:border-slate-700"></th>
@@ -647,7 +611,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
 
               return (
                 <React.Fragment key={`grade-group-${grade}`}>
-                  {/* Students in this grade */}
                   {gradeStudents.map((student, idx) => {
                     const stats = calculateStudentMonthStats(student, session, activeDays, records);
                     const academyDays = getStudentAcademyDays(student);
@@ -657,28 +620,22 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
                         key={student.id}
                         className={`border-b border-slate-200 dark:border-slate-800 transition-colors ${gradeRowBg}`}
                       >
-                        {/* 연번 */}
                         <td className="py-1 px-1 border-r border-slate-200 dark:border-slate-800 text-slate-500 font-mono">
                           {student.seq || idx + 1}
                         </td>
-                        {/* 학년 */}
                         <td className="py-1 px-1 border-r border-slate-200 dark:border-slate-800 font-semibold">
                           {student.grade}
                         </td>
-                        {/* 반 */}
                         <td className="py-1 px-1 border-r border-slate-200 dark:border-slate-800">
                           {student.classNum}
                         </td>
-                        {/* 번호 */}
                         <td className="py-1 px-1 border-r border-slate-200 dark:border-slate-800 font-mono">
                           {student.studentNum}
                         </td>
-                        {/* 이름 (가운데 정렬) */}
                         <td className="py-1 px-2 border-r-2 border-slate-300 dark:border-slate-600 text-center font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
                           {student.name}
                         </td>
 
-                        {/* Attendance Cells */}
                         {activeDays.map(day => {
                           const isExcluded = isStudentExcluded(student, session, day.dateStr, day.dayOfWeek);
 
@@ -743,7 +700,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
                           );
                         })}
 
-                        {/* Stats for this student */}
                         <td className="py-1 px-1 border-l-2 border-slate-300 dark:border-slate-600 border-r border-slate-200 dark:border-slate-800 font-mono font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50/30 dark:bg-emerald-950/10">
                           {stats.presentCount}
                         </td>
@@ -754,7 +710,7 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
                           {stats.rate}
                         </td>
 
-                        {/* Academy Days (월 화 수 목 금 체크박스) */}
+                        {/* Academy Days - 관리자만 클릭 수정 가능 / 교사 및 학생은 클릭 방지 */}
                         <td className="py-1 px-1 text-center select-none whitespace-nowrap">
                           <div className="inline-flex items-center gap-1 justify-center">
                             {WEEKDAYS.map(dayName => {
@@ -763,16 +719,23 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
                                 <button
                                   key={dayName}
                                   type="button"
+                                  disabled={userRole !== 'admin'}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     handleToggleAcademyDay(student.id, dayName);
                                   }}
-                                  className={`w-5 h-5 rounded text-3xs font-black transition-all flex items-center justify-center cursor-pointer border ${
+                                  className={`w-5 h-5 rounded text-3xs font-black transition-all flex items-center justify-center border ${
+                                    userRole === 'admin' ? 'cursor-pointer' : 'cursor-default opacity-90'
+                                  } ${
                                     isAcademy
-                                      ? 'bg-rose-600 border-rose-700 text-white shadow-2xs hover:bg-rose-700'
-                                      : 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                      ? 'bg-rose-600 border-rose-700 text-white shadow-2xs'
+                                      : 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400'
                                   }`}
-                                  title={`${student.name}: ${dayName}요일 ${isAcademy ? '학원 (야자 미참여, 출석부에 음영 처리)' : '학원 없음 (정상 야자 참여, 출석부에 빈칸)'}`}
+                                  title={
+                                    userRole !== 'admin'
+                                      ? `${student.name}: ${dayName}요일 ${isAcademy ? '학원 (야자 미참여 음영)' : '학원 없음 (정상 야자 참여)'} [수정 불가]`
+                                      : `${student.name}: ${dayName}요일 ${isAcademy ? '학원 (클릭 시 해제)' : '학원 없음 (클릭 시 등록)'}`
+                                  }
                                 >
                                   {dayName}
                                 </button>
@@ -784,7 +747,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
                     );
                   })}
 
-                  {/* Summary Rows for this Grade */}
                   <tr className="bg-slate-100/90 dark:bg-slate-800/90 font-bold border-b border-slate-200 dark:border-slate-700 text-2xs text-slate-700 dark:text-slate-300">
                     <td colSpan={5} className="py-1.5 px-2 text-center border-r-2 border-slate-300 dark:border-slate-600">
                       {grade}학년 재적 ({gradeStudents.length}명)
@@ -818,7 +780,7 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
                       });
                       return (
                         <td 
-                           key={`cnt-pres-${grade}-${day.dateStr}`} 
+                          key={`cnt-pres-${grade}-${day.dateStr}`} 
                           className="py-1 px-0.5 border-r border-slate-200 dark:border-slate-700 font-mono font-bold text-indigo-600 dark:text-indigo-400"
                         >
                           {hasEligibleStudents ? presentCount : '-'}
@@ -828,7 +790,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
                     <td colSpan={4} className="border-l-2 border-slate-300 dark:border-slate-600 bg-slate-200/50 dark:bg-slate-700/50"></td>
                   </tr>
 
-                  {/* 2,3학년 재적 / 출석 현황 행 (첨부문서 서식) */}
                   {grade === 2 && selectedGrade === 'all' && (
                     <tr className="bg-slate-100/70 dark:bg-slate-800/70 font-bold border-b border-slate-200 dark:border-slate-700 text-2xs text-slate-800 dark:text-slate-200">
                       <td colSpan={5} className="py-1.5 px-2 text-center border-r-2 border-slate-300 dark:border-slate-600 font-bold">
@@ -864,7 +825,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
               );
             })}
 
-            {/* Total Aggregate Summary Row */}
             {selectedGrade === 'all' && (
               <tr className="bg-indigo-50 dark:bg-indigo-950/60 font-extrabold border-t-2 border-indigo-500 text-xs text-indigo-950 dark:text-indigo-100">
                 <td colSpan={5} className="py-2.5 px-2 text-center border-r-2 border-slate-300 dark:border-slate-600 font-extrabold">
@@ -900,7 +860,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
         </table>
       </div>
 
-      {/* Context Modal for Cell Details (Reason/Notes Editor) */}
       {editingCell && (
         <div 
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
@@ -925,7 +884,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
               </button>
             </div>
 
-            {/* Status Selection Buttons */}
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
                 출결 상태 선택
@@ -952,7 +910,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
               </div>
             </div>
 
-            {/* Check-In Timestamp Input */}
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
                 <span className="flex items-center gap-1">
@@ -979,7 +936,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
               />
             </div>
 
-            {/* Reason / Memo Input */}
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1">
                 <MessageSquare className="w-3.5 h-3.5 text-indigo-500" />
@@ -992,7 +948,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
                 placeholder="예: 병원 진료, 조퇴(학원), 보강, 컨디션 난조..."
                 className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
               />
-              {/* Quick suggestions */}
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {['병원 진료', '조퇴 (학원)', '수행평가', '가족 행사', '컨디션 난조', '등교 지각'].map(tag => (
                   <button
@@ -1007,7 +962,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
               </div>
             </div>
 
-            {/* Modal Actions */}
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
               <button
                 onClick={() => setEditingCell(null)}
@@ -1035,7 +989,6 @@ const handleToggleAcademyDay = (studentId: string, dayName: string) => {
         </div>
       )}
 
-      {/* Print Attendance Sheet Modal */}
       <PrintAttendanceModal
         isOpen={isPrintModalOpen}
         onClose={() => setIsPrintModalOpen(false)}
