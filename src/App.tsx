@@ -110,8 +110,14 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<ViewTab>('monthly');
   const [session, setSession] = useState<SessionType>('morning');
-  const [year, setYear] = useState<number>(2026);
-  const [month, setMonth] = useState<number>(8);
+
+  // 현재 실제 오늘 날짜(연/월/일) 기준 초기값 설정
+  const todayStr = getTodayDateStr(); // YYYY-MM-DD
+  const todayYear = parseInt(todayStr.split('-')[0], 10) || 2026;
+  const todayMonth = parseInt(todayStr.split('-')[1], 10) || 8;
+
+  const [year, setYear] = useState<number>(todayYear);
+  const [month, setMonth] = useState<number>(todayMonth);
 
   const handleRoleChange = (newRole: UserRole) => {
     setUserRole(newRole);
@@ -137,7 +143,7 @@ export default function App() {
   const [lastSyncText, setLastSyncText] = useState<string>('');
   const isInitialRemoteLoadDone = useRef(false);
 
-  // 구글 시트에서 최신 데이터 가져오기 함수
+  // 구글 스프레드시트 최신 데이터 동기화
   const refreshRemoteData = async (showLoading = true) => {
     if (showLoading) setIsSyncing(true);
     try {
@@ -160,12 +166,10 @@ export default function App() {
     }
   };
 
-  // 1. 앱 시작 시 최신 원격 데이터 동기화
   useEffect(() => {
     refreshRemoteData(true);
   }, []);
 
-  // 2. 15초마다 백그라운드 자동 동기화 (다른 기기 변경사항 실시간 반영)
   useEffect(() => {
     const interval = setInterval(() => {
       refreshRemoteData(false);
@@ -173,7 +177,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // 3. 현재 기기에서 변경 시 구글 시트로 자동 전송
   const pushUpdateToRemote = (newStudents: Student[], newRecords: Record<string, AttendanceRecord>) => {
     if (!isInitialRemoteLoadDone.current) return;
     saveStudents(newStudents);
@@ -191,23 +194,32 @@ export default function App() {
     morning: DayConfig[];
     night: DayConfig[];
   }>(() => ({
-    morning: generateMonthDays(2026, 8, 'morning', [19, 20, 21, 24, 25, 26, 27, 28, 31]),
-    night: generateMonthDays(2026, 8, 'night', [20, 21, 24, 25, 27, 28, 31]),
+    morning: generateMonthDays(todayYear, todayMonth, 'morning', (todayYear === 2026 && todayMonth === 8) ? [19, 20, 21, 24, 25, 26, 27, 28, 31] : undefined),
+    night: generateMonthDays(todayYear, todayMonth, 'night', (todayYear === 2026 && todayMonth === 8) ? [20, 21, 24, 25, 27, 28, 31] : undefined),
   }));
 
   const allDaysInMonth = daysConfig[session] || [];
   const activeDays = useMemo(() => allDaysInMonth.filter(d => d.enabled), [allDaysInMonth]);
 
+  // ★ 일별 빠른 체크 진입 시 오늘 날짜를 우선 선택하도록 설정
   const [selectedDateStr, setSelectedDateStr] = useState<string>(() => {
-    const initNightActive = generateMonthDays(2026, 8, 'morning', [19, 20, 21, 24, 25, 26, 27, 28, 31]).filter(d => d.enabled);
-    return initNightActive[0]?.dateStr || '2026-08-19';
+    const today = getTodayDateStr();
+    const initActive = generateMonthDays(todayYear, todayMonth, 'morning', (todayYear === 2026 && todayMonth === 8) ? [19, 20, 21, 24, 25, 26, 27, 28, 31] : undefined).filter(d => d.enabled);
+    if (initActive.some(d => d.dateStr === today)) {
+      return today;
+    }
+    return initActive[0]?.dateStr || today;
   });
 
+  // 오늘 날짜가 해당 월/세션의 운영일에 포함되어 있으면 자동으로 오늘 날짜 선택
   useEffect(() => {
-    if (activeDays.length > 0 && !activeDays.some(d => d.dateStr === selectedDateStr)) {
+    const today = getTodayDateStr();
+    if (activeDays.some(d => d.dateStr === today)) {
+      setSelectedDateStr(today);
+    } else if (activeDays.length > 0 && !activeDays.some(d => d.dateStr === selectedDateStr)) {
       setSelectedDateStr(activeDays[0].dateStr);
     }
-  }, [session, activeDays, selectedDateStr]);
+  }, [session, activeDays]);
 
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isMonthConfigModalOpen, setIsMonthConfigModalOpen] = useState(false);
@@ -228,7 +240,7 @@ export default function App() {
     list: { student: Student; status: AttendanceStatus; reason?: string }[];
   }>({
     isOpen: false,
-    dateStr: '2026-08-19',
+    dateStr: selectedDateStr,
     list: [],
   });
 
@@ -242,8 +254,14 @@ export default function App() {
       ? generateMonthDays(newYear, newMonth, 'night', [20, 21, 24, 25, 27, 28, 31])
       : generateMonthDays(newYear, newMonth, 'night');
     setDaysConfig({ morning: newMorningDays, night: newNightDays });
-    const activeForCurrent = (session === 'morning' ? newMorningDays : newNightDays).filter(d => d.enabled);
-    if (activeForCurrent.length > 0) setSelectedDateStr(activeForCurrent[0].dateStr);
+    
+    const currentActive = (session === 'morning' ? newMorningDays : newNightDays).filter(d => d.enabled);
+    const today = getTodayDateStr();
+    if (currentActive.some(d => d.dateStr === today)) {
+      setSelectedDateStr(today);
+    } else if (currentActive.length > 0) {
+      setSelectedDateStr(currentActive[0].dateStr);
+    }
   };
 
   const handleUpdateRecord = (
