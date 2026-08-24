@@ -138,7 +138,6 @@ export default function App() {
     loadAttendanceRecords()
   );
 
-  // 최신 상태를 실시간 보존하는 ref (비동기 병목 및 덮어쓰기 방지)
   const studentsRef = useRef(students);
   studentsRef.current = students;
   const recordsRef = useRef(records);
@@ -149,39 +148,38 @@ export default function App() {
   const isInitialRemoteLoadDone = useRef(false);
   const debounceTimerRef = useRef<any>(null);
 
-  // 구글 시트로 안전하게 디바운스 전송 (빠른 클릭 시 마지막 상태만 전송)
-  const triggerRemoteSync = () => {
-    if (!isInitialRemoteLoadDone.current) return;
+  // 구글 시트로 데이터 안전 전송
+  const triggerRemoteSync = (customStudents?: Student[], customRecords?: Record<string, AttendanceRecord>) => {
+    const targetStudents = customStudents || studentsRef.current;
+    const targetRecords = customRecords || recordsRef.current;
+
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
-    debounceTimerRef.current = setTimeout(() => {
-      syncToGoogleSheets({ 
-        students: studentsRef.current, 
-        records: recordsRef.current 
+    debounceTimerRef.current = setTimeout(async () => {
+      await syncToGoogleSheets({ 
+        students: targetStudents, 
+        records: targetRecords,
+        updatedAt: new Date().toISOString()
       });
       const now = new Date();
       setLastSyncText(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`);
-    }, 800);
+    }, 500);
   };
 
-  // 구글 시트 원격 데이터 불러오기
+  // 구글 시트 원격 데이터 불러오기 (구글 시트 데이터가 100% 진실값으로 적용됨)
   const refreshRemoteData = async (showLoading = true) => {
     if (showLoading) setIsSyncing(true);
     try {
       const remote = await fetchFromGoogleSheets();
       if (remote) {
-        if (remote.students && remote.students.length > 0) {
+        if (remote.students && Array.isArray(remote.students) && remote.students.length > 0) {
           setStudents(remote.students);
           saveStudents(remote.students);
         }
-        if (remote.records && Object.keys(remote.records).length > 0) {
-          // 로컬에 방금 입력된 상태가 있으면 병합 보존
-          setRecords(prev => {
-            const merged = { ...remote.records, ...prev };
-            saveAttendanceRecords(merged);
-            return merged;
-          });
+        if (remote.records && typeof remote.records === 'object') {
+          setRecords(remote.records);
+          saveAttendanceRecords(remote.records);
         }
         const now = new Date();
         setLastSyncText(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`);
@@ -192,14 +190,16 @@ export default function App() {
     }
   };
 
+  // 1. 처음 접속 시 원격 구글 시트 데이터를 무조건 먼저 가져옴
   useEffect(() => {
     refreshRemoteData(true);
   }, []);
 
+  // 2. 10초마다 다른 기기의 최신 변경사항을 구글 시트에서 가져와 일치시킴
   useEffect(() => {
     const interval = setInterval(() => {
       refreshRemoteData(false);
-    }, 15000);
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -207,7 +207,7 @@ export default function App() {
     const sorted = sortStudents(newStudents, [3, 2, 1], true);
     setStudents(sorted);
     saveStudents(sorted);
-    triggerRemoteSync();
+    triggerRemoteSync(sorted, records);
   };
 
   const [daysConfig, setDaysConfig] = useState<{
@@ -282,7 +282,6 @@ export default function App() {
     }
   };
 
-  // ★ 연속 클릭 시에도 이전 상태가 덮어써지지 않도록 함수형 갱신 적용
   const handleUpdateRecord = (
     studentId: string,
     dateStr: string,
@@ -300,6 +299,8 @@ export default function App() {
     const now = new Date();
     const currentTimestamp = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
+    let updatedRecords: Record<string, AttendanceRecord> = {};
+
     setRecords(prev => {
       let finalCheckInTime: string | undefined = undefined;
       if (status !== 'NONE') {
@@ -315,17 +316,20 @@ export default function App() {
         },
       };
 
+      updatedRecords = updated;
       saveAttendanceRecords(updated);
       return updated;
     });
 
-    triggerRemoteSync();
+    triggerRemoteSync(students, updatedRecords);
   };
 
   const handleBatchUpdateDay = (dateStr: string, status: AttendanceStatus, gradeFilter?: number) => {
     if (userRole === 'teacher' || userRole === 'student') return;
     const now = new Date();
     const currentTimestamp = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    let updatedRecords: Record<string, AttendanceRecord> = {};
 
     setRecords(prev => {
       const updated = { ...prev };
@@ -339,17 +343,20 @@ export default function App() {
             checkInTime: status !== 'NONE' ? (prev[key]?.checkInTime || currentTimestamp) : undefined,
           };
         });
+      updatedRecords = updated;
       saveAttendanceRecords(updated);
       return updated;
     });
 
-    triggerRemoteSync();
+    triggerRemoteSync(students, updatedRecords);
   };
 
   const handleFillDayAbsent = (dateStr: string, gradeFilter?: number) => {
     if (userRole === 'teacher' || userRole === 'student') return;
     const now = new Date();
     const currentTimestamp = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    let updatedRecords: Record<string, AttendanceRecord> = {};
 
     setRecords(prev => {
       const updated = { ...prev };
@@ -366,11 +373,12 @@ export default function App() {
             };
           }
         });
+      updatedRecords = updated;
       saveAttendanceRecords(updated);
       return updated;
     });
 
-    triggerRemoteSync();
+    triggerRemoteSync(students, updatedRecords);
   };
 
   const handleToggleDay = (dateStr: string) => {
@@ -410,6 +418,7 @@ export default function App() {
 
   const handleClearDate = (dateStr: string, gradeFilter?: number, targetSession?: SessionType | 'both') => {
     const sessionToClear = targetSession || session;
+    let updatedRecords: Record<string, AttendanceRecord> = {};
     setRecords(prev => {
       const updated = { ...prev };
       students
@@ -422,14 +431,16 @@ export default function App() {
             delete updated[getRecordKey(st.id, sessionToClear, dateStr)];
           }
         });
+      updatedRecords = updated;
       saveAttendanceRecords(updated);
       return updated;
     });
-    triggerRemoteSync();
+    triggerRemoteSync(students, updatedRecords);
   };
 
   const handleClearMonthSession = (targetYear: number, targetMonth: number, targetSession: SessionType | 'both') => {
     const monthPrefix = `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
+    let updatedRecords: Record<string, AttendanceRecord> = {};
     setRecords(prev => {
       const updated = { ...prev };
       Object.keys(updated).forEach(key => {
@@ -443,16 +454,17 @@ export default function App() {
           }
         }
       });
+      updatedRecords = updated;
       saveAttendanceRecords(updated);
       return updated;
     });
-    triggerRemoteSync();
+    triggerRemoteSync(students, updatedRecords);
   };
 
   const handleClearAll = () => {
     setRecords({});
     saveAttendanceRecords({});
-    triggerRemoteSync();
+    triggerRemoteSync(students, {});
   };
 
   return (
