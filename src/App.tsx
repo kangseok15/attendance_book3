@@ -45,7 +45,7 @@ import {
   getTodayDateStr,
   isStudentAttendanceLocked
 } from './utils/attendanceHelpers';
-import { RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 
 export default function App() {
   const getInitialRole = (): UserRole => {
@@ -138,56 +138,75 @@ export default function App() {
     loadAttendanceRecords()
   );
 
-  const studentsRef = useRef(students);
+  // 실시간 동기화 상태 Ref
+  const studentsRef = useRef<Student[]>(students);
   studentsRef.current = students;
-  const recordsRef = useRef(records);
+  const recordsRef = useRef<Record<string, AttendanceRecord>>(records);
   recordsRef.current = records;
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'success' | 'syncing' | 'error'>('success');
   const [lastSyncText, setLastSyncText] = useState<string>('');
   const isInitialRemoteLoadDone = useRef(false);
+  const lastUserEditTimeRef = useRef<number>(0);
+  const debounceTimerRef = useRef<any>(null);
 
-  // 안전 전송 함수: 개별 변경사항만 안전하게 전송
-  const sendDeltaToRemote = async (changedRecords: Record<string, AttendanceRecord>, currentStudents?: Student[]) => {
+  // 구글 시트로 확실하게 전체 데이터 동기화 전송
+  const triggerRemoteSync = (targetStudents?: Student[], targetRecords?: Record<string, AttendanceRecord>) => {
+    const s = targetStudents || studentsRef.current;
+    const r = targetRecords || recordsRef.current;
+
     setIsSyncing(true);
     setSyncStatus('syncing');
-    try {
-      await syncToGoogleSheets({
-        students: currentStudents || studentsRef.current,
-        records: changedRecords, // 변경된 항목만 전달하여 시트에서 병합
-        updatedAt: new Date().toISOString()
-      });
-      const now = new Date();
-      setLastSyncText(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`);
-      setSyncStatus('success');
-    } catch (e) {
-      setSyncStatus('error');
-    } finally {
-      setIsSyncing(false);
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
     }
+
+    debounceTimerRef.current = setTimeout(async () => {
+      try {
+        await syncToGoogleSheets({
+          students: s,
+          records: r,
+          updatedAt: new Date().toISOString()
+        });
+        const now = new Date();
+        setLastSyncText(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`);
+        setSyncStatus('success');
+      } catch (err) {
+        setSyncStatus('error');
+      } finally {
+        setIsSyncing(false);
+      }
+    }, 400);
   };
 
-  // 구글 시트 원격 데이터 불러와 안전 병합 (기존 로컬 데이터와 서버 데이터를 합침)
+  // 구글 시트 원격 데이터 불러오기
   const refreshRemoteData = async (showLoading = true) => {
+    // 사용자가 방금(15초 이내) 직접 수정한 경우 외부 데이터로 덮어쓰기 엄격 차단
+    if (Date.now() - lastUserEditTimeRef.current < 15000 && !showLoading) {
+      return;
+    }
+
     if (showLoading) {
       setIsSyncing(true);
       setSyncStatus('syncing');
     }
+
     try {
       const remote = await fetchFromGoogleSheets();
       if (remote) {
         if (remote.students && Array.isArray(remote.students) && remote.students.length > 0) {
+          studentsRef.current = remote.students;
           setStudents(remote.students);
           saveStudents(remote.students);
         }
         if (remote.records && typeof remote.records === 'object') {
-          setRecords(prev => {
-            // 서버 데이터와 로컬 데이터를 완벽 병합하여 어떤 데이터도 유실되지 않음
-            const merged = { ...prev, ...remote.records };
-            saveAttendanceRecords(merged);
-            return merged;
-          });
+          // 로컬에 있는 최신 수정을 유지하면서 원격 데이터 병합
+          const merged = { ...remote.records, ...recordsRef.current };
+          recordsRef.current = merged;
+          setRecords(merged);
+          saveAttendanceRecords(merged);
         }
         const now = new Date();
         setLastSyncText(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`);
@@ -205,19 +224,21 @@ export default function App() {
     refreshRemoteData(true);
   }, []);
 
-  // 20초마다 주기적 원격 동기화
+  // 25초마다 주기적 원격 동기화
   useEffect(() => {
     const interval = setInterval(() => {
       refreshRemoteData(false);
-    }, 20000);
+    }, 25000);
     return () => clearInterval(interval);
   }, []);
 
   const handleUpdateStudents = (newStudents: Student[]) => {
+    lastUserEditTimeRef.current = Date.now();
     const sorted = sortStudents(newStudents, [3, 2, 1], true);
+    studentsRef.current = sorted;
     setStudents(sorted);
     saveStudents(sorted);
-    sendDeltaToRemote(recordsRef.current, sorted);
+    triggerRemoteSync(sorted, recordsRef.current);
   };
 
   const [daysConfig, setDaysConfig] = useState<{
@@ -292,7 +313,7 @@ export default function App() {
     }
   };
 
-  // 단일 출결 수정 (즉시 로컬 보존 + 델타 안전 전송)
+  // ★ 완벽한 단일 출결 수정: 즉시 메모리 및 로컬 동기화 + 안전 원격 전송
   const handleUpdateRecord = (
     studentId: string,
     dateStr: string,
@@ -306,95 +327,87 @@ export default function App() {
       if (lockCheck.isLocked) return;
     }
 
+    lastUserEditTimeRef.current = Date.now();
     const key = getRecordKey(studentId, session, dateStr);
     const now = new Date();
     const currentTimestamp = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const prevRec = recordsRef.current[key];
 
-    let singleRecordDelta: Record<string, AttendanceRecord> = {};
+    let finalCheckInTime: string | undefined = undefined;
+    if (status !== 'NONE') {
+      finalCheckInTime = checkInTime !== undefined ? checkInTime : (prevRec?.checkInTime || currentTimestamp);
+    }
 
-    setRecords(prev => {
-      let finalCheckInTime: string | undefined = undefined;
-      if (status !== 'NONE') {
-        finalCheckInTime = checkInTime !== undefined ? checkInTime : (prev[key]?.checkInTime || currentTimestamp);
-      }
+    const updatedRecord: AttendanceRecord = {
+      status,
+      reason: reason !== undefined ? reason : prevRec?.reason,
+      checkInTime: finalCheckInTime,
+    };
 
-      const updatedRecord: AttendanceRecord = {
-        status,
-        reason: reason !== undefined ? reason : prev[key]?.reason,
-        checkInTime: finalCheckInTime,
-      };
+    const nextRecords = {
+      ...recordsRef.current,
+      [key]: updatedRecord,
+    };
 
-      singleRecordDelta = { [key]: updatedRecord };
-
-      const next = {
-        ...prev,
-        [key]: updatedRecord,
-      };
-
-      saveAttendanceRecords(next);
-      return next;
-    });
-
-    sendDeltaToRemote(singleRecordDelta);
+    // 1. 메모리 Ref 즉시 업데이트 (0ms 지연 없음)
+    recordsRef.current = nextRecords;
+    // 2. React UI 즉시 반영
+    setRecords(nextRecords);
+    // 3. 브라우저 로컬 저장
+    saveAttendanceRecords(nextRecords);
+    // 4. 구글 시트로 안전 전송
+    triggerRemoteSync(studentsRef.current, nextRecords);
   };
 
   const handleBatchUpdateDay = (dateStr: string, status: AttendanceStatus, gradeFilter?: number) => {
     if (userRole === 'teacher' || userRole === 'student') return;
+    lastUserEditTimeRef.current = Date.now();
     const now = new Date();
     const currentTimestamp = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-    const batchDelta: Record<string, AttendanceRecord> = {};
+    const nextRecords = { ...recordsRef.current };
+    studentsRef.current
+      .filter(st => st.active && !isStudentExcluded(st, session, dateStr) && (gradeFilter === undefined || st.grade === gradeFilter))
+      .forEach(st => {
+        const key = getRecordKey(st.id, session, dateStr);
+        nextRecords[key] = {
+          status,
+          reason: nextRecords[key]?.reason,
+          checkInTime: status !== 'NONE' ? (nextRecords[key]?.checkInTime || currentTimestamp) : undefined,
+        };
+      });
 
-    setRecords(prev => {
-      const updated = { ...prev };
-      students
-        .filter(st => st.active && !isStudentExcluded(st, session, dateStr) && (gradeFilter === undefined || st.grade === gradeFilter))
-        .forEach(st => {
-          const key = getRecordKey(st.id, session, dateStr);
-          const rec: AttendanceRecord = {
-            status,
-            reason: prev[key]?.reason,
-            checkInTime: status !== 'NONE' ? (prev[key]?.checkInTime || currentTimestamp) : undefined,
-          };
-          updated[key] = rec;
-          batchDelta[key] = rec;
-        });
-      saveAttendanceRecords(updated);
-      return updated;
-    });
-
-    sendDeltaToRemote(batchDelta);
+    recordsRef.current = nextRecords;
+    setRecords(nextRecords);
+    saveAttendanceRecords(nextRecords);
+    triggerRemoteSync(studentsRef.current, nextRecords);
   };
 
   const handleFillDayAbsent = (dateStr: string, gradeFilter?: number) => {
     if (userRole === 'teacher' || userRole === 'student') return;
+    lastUserEditTimeRef.current = Date.now();
     const now = new Date();
     const currentTimestamp = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-    const absentDelta: Record<string, AttendanceRecord> = {};
+    const nextRecords = { ...recordsRef.current };
+    studentsRef.current
+      .filter(st => st.active && !isStudentExcluded(st, session, dateStr) && (gradeFilter === undefined || st.grade === gradeFilter))
+      .forEach(st => {
+        const key = getRecordKey(st.id, session, dateStr);
+        const currentStatus = nextRecords[key]?.status;
+        if (!currentStatus || currentStatus === 'NONE') {
+          nextRecords[key] = {
+            status: 'ABSENT',
+            reason: nextRecords[key]?.reason,
+            checkInTime: currentTimestamp,
+          };
+        }
+      });
 
-    setRecords(prev => {
-      const updated = { ...prev };
-      students
-        .filter(st => st.active && !isStudentExcluded(st, session, dateStr) && (gradeFilter === undefined || st.grade === gradeFilter))
-        .forEach(st => {
-          const key = getRecordKey(st.id, session, dateStr);
-          const currentStatus = prev[key]?.status;
-          if (!currentStatus || currentStatus === 'NONE') {
-            const rec: AttendanceRecord = {
-              status: 'ABSENT',
-              reason: prev[key]?.reason,
-              checkInTime: currentTimestamp,
-            };
-            updated[key] = rec;
-            absentDelta[key] = rec;
-          }
-        });
-      saveAttendanceRecords(updated);
-      return updated;
-    });
-
-    sendDeltaToRemote(absentDelta);
+    recordsRef.current = nextRecords;
+    setRecords(nextRecords);
+    saveAttendanceRecords(nextRecords);
+    triggerRemoteSync(studentsRef.current, nextRecords);
   };
 
   const handleToggleDay = (dateStr: string) => {
@@ -433,61 +446,54 @@ export default function App() {
   };
 
   const handleClearDate = (dateStr: string, gradeFilter?: number, targetSession?: SessionType | 'both') => {
+    lastUserEditTimeRef.current = Date.now();
     const sessionToClear = targetSession || session;
-    const clearedDelta: Record<string, AttendanceRecord> = {};
+    const nextRecords = { ...recordsRef.current };
+    studentsRef.current
+      .filter(st => gradeFilter === undefined || st.grade === gradeFilter)
+      .forEach(st => {
+        if (sessionToClear === 'both') {
+          delete nextRecords[getRecordKey(st.id, 'morning', dateStr)];
+          delete nextRecords[getRecordKey(st.id, 'night', dateStr)];
+        } else {
+          delete nextRecords[getRecordKey(st.id, sessionToClear, dateStr)];
+        }
+      });
 
-    setRecords(prev => {
-      const updated = { ...prev };
-      students
-        .filter(st => gradeFilter === undefined || st.grade === gradeFilter)
-        .forEach(st => {
-          if (sessionToClear === 'both') {
-            const km = getRecordKey(st.id, 'morning', dateStr);
-            const kn = getRecordKey(st.id, 'night', dateStr);
-            delete updated[km];
-            delete updated[kn];
-            clearedDelta[km] = { status: 'NONE' };
-            clearedDelta[kn] = { status: 'NONE' };
-          } else {
-            const k = getRecordKey(st.id, sessionToClear, dateStr);
-            delete updated[k];
-            clearedDelta[k] = { status: 'NONE' };
-          }
-        });
-      saveAttendanceRecords(updated);
-      return updated;
-    });
-    sendDeltaToRemote(clearedDelta);
+    recordsRef.current = nextRecords;
+    setRecords(nextRecords);
+    saveAttendanceRecords(nextRecords);
+    triggerRemoteSync(studentsRef.current, nextRecords);
   };
 
   const handleClearMonthSession = (targetYear: number, targetMonth: number, targetSession: SessionType | 'both') => {
+    lastUserEditTimeRef.current = Date.now();
     const monthPrefix = `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
-    const clearedDelta: Record<string, AttendanceRecord> = {};
-
-    setRecords(prev => {
-      const updated = { ...prev };
-      Object.keys(updated).forEach(key => {
-        const parts = key.split('_');
-        if (parts.length >= 3) {
-          const keySession = parts[1] as SessionType;
-          const keyDate = parts[2];
-          const isMatchingSession = targetSession === 'both' || keySession === targetSession;
-          if (isMatchingSession && keyDate.startsWith(monthPrefix)) {
-            delete updated[key];
-            clearedDelta[key] = { status: 'NONE' };
-          }
+    const nextRecords = { ...recordsRef.current };
+    Object.keys(nextRecords).forEach(key => {
+      const parts = key.split('_');
+      if (parts.length >= 3) {
+        const keySession = parts[1] as SessionType;
+        const keyDate = parts[2];
+        const isMatchingSession = targetSession === 'both' || keySession === targetSession;
+        if (isMatchingSession && keyDate.startsWith(monthPrefix)) {
+          delete nextRecords[key];
         }
-      });
-      saveAttendanceRecords(updated);
-      return updated;
+      }
     });
-    sendDeltaToRemote(clearedDelta);
+
+    recordsRef.current = nextRecords;
+    setRecords(nextRecords);
+    saveAttendanceRecords(nextRecords);
+    triggerRemoteSync(studentsRef.current, nextRecords);
   };
 
   const handleClearAll = () => {
+    lastUserEditTimeRef.current = Date.now();
+    recordsRef.current = {};
     setRecords({});
     saveAttendanceRecords({});
-    sendDeltaToRemote({});
+    triggerRemoteSync(studentsRef.current, {});
   };
 
   return (
