@@ -141,7 +141,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
 
   const effectiveToday = todayDateStr || getTodayDateStr();
 
-  // 음영 처리된 셀도 이제 클릭하여 출결 체크 가능
+  // 음영 처리된 셀도 클릭하여 출결 체크 가능
   const handleCellClick = (student: Student, day: DayConfig) => {
     if (userRole === 'teacher') {
       showTeacherWarning();
@@ -439,6 +439,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
         )}
       </div>
 
+      {/* Legend Bar (학원 배지 너비 자동 및 줄바꿈 방지) */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 bg-white dark:bg-slate-800 rounded-2xl text-xs text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shadow-2xs">
         <div className="flex items-center gap-3.5 flex-wrap">
           <span className="font-bold text-slate-800 dark:text-slate-200">출결 기호:</span>
@@ -463,7 +464,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
             <span>공결</span>
           </span>
           <span className="inline-flex items-center gap-1.5 border-l border-slate-300 dark:border-slate-600 pl-3">
-            <span className="w-5 h-5 rounded bg-slate-200 dark:bg-slate-700 border border-slate-400 text-slate-600 dark:text-slate-300 text-center leading-5 text-xs font-bold shadow-2xs">학원</span>
+            <span className="px-2 h-5 rounded bg-slate-200 dark:bg-slate-700 border border-slate-400 text-slate-700 dark:text-slate-200 text-center leading-5 text-3xs font-extrabold shadow-2xs whitespace-nowrap inline-flex items-center justify-center">학원</span>
             <span className="font-bold text-slate-700 dark:text-slate-300">음영 셀: 학원/미참여일 (클릭 시 정상 출결 입력 가능)</span>
           </span>
         </div>
@@ -634,7 +635,6 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
                           const studentLock = userRole === 'student' ? isStudentAttendanceLocked(session, day.dateStr) : { isLocked: false };
                           const isCellDisabled = userRole === 'teacher' || (userRole === 'student' && studentLock.isLocked);
 
-                          // 음영 스타일 (학원 요일이거나 수능 후인 경우 옅은 스트라이프 배경)
                           const shadedStyle = isExcluded ? {
                             backgroundImage: 'repeating-linear-gradient(45deg, rgba(148, 163, 184, 0.18), rgba(148, 163, 184, 0.18) 3px, rgba(203, 213, 225, 0.35) 3px, rgba(203, 213, 225, 0.35) 6px)'
                           } : undefined;
@@ -687,7 +687,6 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
                           {stats.rate}
                         </td>
 
-                        {/* Academy Days - 관리자만 클릭 수정 가능 / 교사 및 학생은 클릭 방지 */}
                         <td className="py-1 px-1 text-center select-none whitespace-nowrap">
                           <div className="inline-flex items-center gap-1 justify-center">
                             {WEEKDAYS.map(dayName => {
@@ -777,6 +776,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
                         filteredStudents
                           .filter(s => s.grade === 3 || s.grade === 2)
                           .forEach(st => {
+                            if (isStudentExcluded(st, session, day.dateStr, day.dayOfWeek)) return;
                             hasEligible = true;
                             const k = getRecordKey(st.id, session, day.dateStr);
                             const s = records[k]?.status;
