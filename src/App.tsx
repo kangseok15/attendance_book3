@@ -138,7 +138,6 @@ export default function App() {
     loadAttendanceRecords()
   );
 
-  // 실시간 동기화 상태 Ref
   const studentsRef = useRef<Student[]>(students);
   studentsRef.current = students;
   const recordsRef = useRef<Record<string, AttendanceRecord>>(records);
@@ -151,7 +150,7 @@ export default function App() {
   const lastUserEditTimeRef = useRef<number>(0);
   const debounceTimerRef = useRef<any>(null);
 
-  // 구글 시트로 확실하게 전체 데이터 동기화 전송
+  // 구글 시트로 변경 상태 전송
   const triggerRemoteSync = (targetStudents?: Student[], targetRecords?: Record<string, AttendanceRecord>) => {
     const s = targetStudents || studentsRef.current;
     const r = targetRecords || recordsRef.current;
@@ -178,13 +177,12 @@ export default function App() {
       } finally {
         setIsSyncing(false);
       }
-    }, 400);
+    }, 300);
   };
 
-  // 구글 시트 원격 데이터 불러오기
+  // 구글 시트 원격 데이터 불러오기 (비워진 상태도 그대로 화면에 반영)
   const refreshRemoteData = async (showLoading = true) => {
-    // 사용자가 방금(15초 이내) 직접 수정한 경우 외부 데이터로 덮어쓰기 엄격 차단
-    if (Date.now() - lastUserEditTimeRef.current < 15000 && !showLoading) {
+    if (Date.now() - lastUserEditTimeRef.current < 8000 && !showLoading) {
       return;
     }
 
@@ -202,11 +200,9 @@ export default function App() {
           saveStudents(remote.students);
         }
         if (remote.records && typeof remote.records === 'object') {
-          // 로컬에 있는 최신 수정을 유지하면서 원격 데이터 병합
-          const merged = { ...remote.records, ...recordsRef.current };
-          recordsRef.current = merged;
-          setRecords(merged);
-          saveAttendanceRecords(merged);
+          recordsRef.current = remote.records;
+          setRecords(remote.records);
+          saveAttendanceRecords(remote.records);
         }
         const now = new Date();
         setLastSyncText(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`);
@@ -224,11 +220,10 @@ export default function App() {
     refreshRemoteData(true);
   }, []);
 
-  // 25초마다 주기적 원격 동기화
   useEffect(() => {
     const interval = setInterval(() => {
       refreshRemoteData(false);
-    }, 25000);
+    }, 20000);
     return () => clearInterval(interval);
   }, []);
 
@@ -313,7 +308,7 @@ export default function App() {
     }
   };
 
-  // ★ 완벽한 단일 출결 수정: 즉시 메모리 및 로컬 동기화 + 안전 원격 전송
+  // 단일 출결 수정
   const handleUpdateRecord = (
     studentId: string,
     dateStr: string,
@@ -338,24 +333,20 @@ export default function App() {
       finalCheckInTime = checkInTime !== undefined ? checkInTime : (prevRec?.checkInTime || currentTimestamp);
     }
 
-    const updatedRecord: AttendanceRecord = {
-      status,
-      reason: reason !== undefined ? reason : prevRec?.reason,
-      checkInTime: finalCheckInTime,
-    };
+    const nextRecords = { ...recordsRef.current };
+    if (status === 'NONE') {
+      delete nextRecords[key];
+    } else {
+      nextRecords[key] = {
+        status,
+        reason: reason !== undefined ? reason : prevRec?.reason,
+        checkInTime: finalCheckInTime,
+      };
+    }
 
-    const nextRecords = {
-      ...recordsRef.current,
-      [key]: updatedRecord,
-    };
-
-    // 1. 메모리 Ref 즉시 업데이트 (0ms 지연 없음)
     recordsRef.current = nextRecords;
-    // 2. React UI 즉시 반영
     setRecords(nextRecords);
-    // 3. 브라우저 로컬 저장
     saveAttendanceRecords(nextRecords);
-    // 4. 구글 시트로 안전 전송
     triggerRemoteSync(studentsRef.current, nextRecords);
   };
 
@@ -370,11 +361,15 @@ export default function App() {
       .filter(st => st.active && !isStudentExcluded(st, session, dateStr) && (gradeFilter === undefined || st.grade === gradeFilter))
       .forEach(st => {
         const key = getRecordKey(st.id, session, dateStr);
-        nextRecords[key] = {
-          status,
-          reason: nextRecords[key]?.reason,
-          checkInTime: status !== 'NONE' ? (nextRecords[key]?.checkInTime || currentTimestamp) : undefined,
-        };
+        if (status === 'NONE') {
+          delete nextRecords[key];
+        } else {
+          nextRecords[key] = {
+            status,
+            reason: nextRecords[key]?.reason,
+            checkInTime: status !== 'NONE' ? (nextRecords[key]?.checkInTime || currentTimestamp) : undefined,
+          };
+        }
       });
 
     recordsRef.current = nextRecords;
@@ -445,6 +440,7 @@ export default function App() {
     }));
   };
 
+  // ★ 날짜별 출결 비우기
   const handleClearDate = (dateStr: string, gradeFilter?: number, targetSession?: SessionType | 'both') => {
     lastUserEditTimeRef.current = Date.now();
     const sessionToClear = targetSession || session;
@@ -466,6 +462,7 @@ export default function App() {
     triggerRemoteSync(studentsRef.current, nextRecords);
   };
 
+  // ★ 월별/세션별 출결 비우기
   const handleClearMonthSession = (targetYear: number, targetMonth: number, targetSession: SessionType | 'both') => {
     lastUserEditTimeRef.current = Date.now();
     const monthPrefix = `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
@@ -488,6 +485,7 @@ export default function App() {
     triggerRemoteSync(studentsRef.current, nextRecords);
   };
 
+  // ★ 전체 출결 비우기
   const handleClearAll = () => {
     lastUserEditTimeRef.current = Date.now();
     recordsRef.current = {};
