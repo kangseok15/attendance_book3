@@ -5,8 +5,8 @@
 
 import React, { useMemo } from 'react';
 import { Student, SessionType, DayConfig, AttendanceRecord } from '../types/attendance';
-import { getRecordKey } from '../utils/attendanceHelpers';
-import { TrendingUp, Award } from 'lucide-react';
+import { getRecordKey, isStudentExcluded } from '../utils/attendanceHelpers';
+import { TrendingUp, Award, CheckCircle, Users } from 'lucide-react';
 
 export const AnalyticsView: React.FC<any> = (props) => {
   const {
@@ -20,45 +20,64 @@ export const AnalyticsView: React.FC<any> = (props) => {
     return (students as Student[]).filter(s => s.active);
   }, [students]);
 
-  // 학년별 통계 (100% 초과 방지)
-  const gradeStats = useMemo(() => {
-    return [3, 2, 1].map(grade => {
+  // 학년별 및 전체 합계 통계 계산 (100% 한도 및 학원 제외 완벽 반영)
+  const statsSummary = useMemo(() => {
+    const grades = [3, 2, 1];
+    const gradeResults = grades.map(grade => {
       const gStudents = activeStudents.filter(s => s.grade === grade);
-      let totalSlots = 0;
+      let totalEligible = 0;
       let presentCount = 0;
       let lateCount = 0;
-      let earlyLeaveCount = 0;
-      let officialAbsentCount = 0;
+      let earlyCount = 0;
+      let officialCount = 0;
       let absentCount = 0;
 
       gStudents.forEach(st => {
         (activeDays as DayConfig[]).forEach(day => {
-          totalSlots += 1;
-          const key = getRecordKey(st.id, session as SessionType, day.dateStr);
-          const status = (records as Record<string, AttendanceRecord>)[key]?.status;
-          if (status === 'PRESENT') presentCount += 1;
-          else if (status === 'LATE') lateCount += 1;
-          else if (status === 'EARLY_LEAVE') earlyLeaveCount += 1;
-          else if (status === 'OFFICIAL_ABSENT') officialAbsentCount += 1;
-          else if (status === 'ABSENT') absentCount += 1;
+          if (!isStudentExcluded(st, session as SessionType, day.dateStr)) {
+            totalEligible += 1;
+            const key = getRecordKey(st.id, session as SessionType, day.dateStr);
+            const status = (records as Record<string, AttendanceRecord>)[key]?.status;
+            if (status === 'PRESENT') presentCount += 1;
+            else if (status === 'LATE') lateCount += 1;
+            else if (status === 'EARLY_LEAVE') earlyCount += 1;
+            else if (status === 'OFFICIAL_ABSENT') officialCount += 1;
+            else if (status === 'ABSENT') absentCount += 1;
+          }
         });
       });
 
-      const effectivePresent = presentCount + (lateCount * 0.7) + (earlyLeaveCount * 0.7) + officialAbsentCount;
-      const rate = totalSlots > 0 ? Math.min(100, Math.round((effectivePresent / totalSlots) * 100)) : 0;
-      const totalAttended = presentCount + lateCount + earlyLeaveCount + officialAbsentCount;
+      const effectivePresent = presentCount + (lateCount * 0.7) + (earlyCount * 0.7) + officialCount;
+      const rate = totalEligible > 0 ? Math.min(100, Math.round((effectivePresent / totalEligible) * 100)) : 0;
+      const attended = presentCount + lateCount + earlyCount + officialCount;
 
       return {
         grade,
         studentCount: gStudents.length,
         rate,
-        totalSlots,
-        totalAttended: Math.min(totalAttended, totalSlots),
+        totalEligible,
+        attended: Math.min(attended, totalEligible),
+        presentCount,
+        lateCount,
+        absentCount
       };
     });
+
+    const totalStudents = activeStudents.length;
+    const totalEligible = gradeResults.reduce((acc, cur) => acc + cur.totalEligible, 0);
+    const totalAttended = gradeResults.reduce((acc, cur) => acc + cur.attended, 0);
+    const totalRate = totalEligible > 0 ? Math.min(100, Math.round((totalAttended / totalEligible) * 100)) : 0;
+
+    return {
+      gradeResults,
+      totalStudents,
+      totalEligible,
+      totalAttended,
+      totalRate
+    };
   }, [activeStudents, activeDays, session, records]);
 
-  // 학생별 성실도 통계
+  // 학생별 랭킹 통계
   const studentRankings = useMemo(() => {
     return activeStudents.map(st => {
       let eligibleDays = 0;
@@ -70,14 +89,16 @@ export const AnalyticsView: React.FC<any> = (props) => {
       let absent = 0;
 
       (activeDays as DayConfig[]).forEach(day => {
-        eligibleDays += 1;
-        const key = getRecordKey(st.id, session as SessionType, day.dateStr);
-        const s = (records as Record<string, AttendanceRecord>)[key]?.status;
-        if (s === 'PRESENT') { present += 1; attendedDays += 1; }
-        else if (s === 'LATE') { late += 1; attendedDays += 1; }
-        else if (s === 'EARLY_LEAVE') { early += 1; attendedDays += 1; }
-        else if (s === 'OFFICIAL_ABSENT') { official += 1; attendedDays += 1; }
-        else if (s === 'ABSENT') { absent += 1; }
+        if (!isStudentExcluded(st, session as SessionType, day.dateStr)) {
+          eligibleDays += 1;
+          const key = getRecordKey(st.id, session as SessionType, day.dateStr);
+          const s = (records as Record<string, AttendanceRecord>)[key]?.status;
+          if (s === 'PRESENT') { present += 1; attendedDays += 1; }
+          else if (s === 'LATE') { late += 1; attendedDays += 1; }
+          else if (s === 'EARLY_LEAVE') { early += 1; attendedDays += 1; }
+          else if (s === 'OFFICIAL_ABSENT') { official += 1; attendedDays += 1; }
+          else if (s === 'ABSENT') { absent += 1; }
+        }
       });
 
       const effectivePresent = present + (late * 0.7) + (early * 0.7) + official;
@@ -97,12 +118,12 @@ export const AnalyticsView: React.FC<any> = (props) => {
 
   return (
     <div className="space-y-6">
-      {/* 학년별 현황 카드 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {gradeStats.map(stat => (
+      {/* 상단 학년별 및 전체 통계 카드 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {statsSummary.gradeResults.map(stat => (
           <div key={stat.grade} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
             <div className="flex justify-between items-center mb-3">
-              <span className="font-bold text-slate-800 dark:text-slate-100">{stat.grade}학년 자율학습 현황</span>
+              <span className="font-bold text-slate-800 dark:text-slate-100">{stat.grade}학년 현황</span>
               <span className="text-xs bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-full font-medium text-slate-600 dark:text-slate-400">
                 {stat.studentCount}명
               </span>
@@ -110,7 +131,7 @@ export const AnalyticsView: React.FC<any> = (props) => {
             <div className="flex items-baseline justify-between mb-2">
               <span className="text-3xl font-black text-slate-900 dark:text-white">{stat.rate}%</span>
               <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                {stat.totalAttended} / {stat.totalSlots} 누적 출석
+                {stat.attended} / {stat.totalEligible} 출석
               </span>
             </div>
             <div className="w-full bg-slate-100 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden">
@@ -123,9 +144,28 @@ export const AnalyticsView: React.FC<any> = (props) => {
             </div>
           </div>
         ))}
+
+        {/* 전체 합계 카드 */}
+        <div className="bg-indigo-900 text-white p-5 rounded-2xl shadow-sm border border-indigo-800">
+          <div className="flex justify-between items-center mb-3">
+            <span className="font-bold">전체 누적 출석률</span>
+            <span className="text-xs bg-white/20 px-2.5 py-1 rounded-full font-medium text-white">
+              총 {statsSummary.totalStudents}명
+            </span>
+          </div>
+          <div className="flex items-baseline justify-between mb-2">
+            <span className="text-3xl font-black">{statsSummary.totalRate}%</span>
+            <span className="text-xs opacity-80 font-medium">
+              {statsSummary.totalAttended} / {statsSummary.totalEligible} 누적
+            </span>
+          </div>
+          <div className="w-full bg-white/20 h-2.5 rounded-full overflow-hidden">
+            <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${statsSummary.totalRate}%` }} />
+          </div>
+        </div>
       </div>
 
-      {/* 학생별 성실도 랭킹 */}
+      {/* 학생별 상세 랭킹 테이블 */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
