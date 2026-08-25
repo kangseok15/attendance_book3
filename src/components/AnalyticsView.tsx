@@ -4,18 +4,18 @@
  */
 
 import React, { useMemo } from 'react';
-import { Student, SessionType, DayConfig, AttendanceRecord } from '../types/attendance';
+import { Student, SessionType, DayConfig, AttendanceRecord, UserRole } from '../types/attendance';
 import { getRecordKey, isStudentExcludedOnDate } from '../utils/attendanceHelpers';
 import { TrendingUp, Award } from 'lucide-react';
 
 interface AnalyticsViewProps {
   students: Student[];
   session: SessionType;
-  year: number;
-  month: number;
+  year?: number;
+  month?: number;
   activeDays: DayConfig[];
   records: Record<string, AttendanceRecord>;
-  userRole: string;
+  userRole?: UserRole | string;
 }
 
 export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
@@ -142,7 +142,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         </div>
 
         <div className="overflow-x-auto max-h-[500px]">
-          <table className="w-full text-left text-xs">
+          <table className="w-left text-xs w-full">
             <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-semibold sticky top-0 border-b border-slate-200 dark:border-slate-700">
               <tr>
                 <th className="py-3 px-4 text-center">순위</th>
