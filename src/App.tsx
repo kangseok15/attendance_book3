@@ -3,209 +3,522 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Student, 
   SessionType, 
   DayConfig, 
-  AttendanceRecord, 
-  UserRole,
-  TabType 
+  AttendanceStatus, 
+  AttendanceRecord,
+  UserRole
 } from './types/attendance';
-import { getTodayDateStr } from './utils/attendanceHelpers';
-import { fetchFromGoogleSheets, syncToGoogleSheets } from './utils/googleSync';
-import { MonthlyGridView } from './components/MonthlyGridView';
-import { AnalyticsView } from './components/AnalyticsView';
 import { 
-  Calendar, 
-  Users, 
-  BarChart3, 
-  ShieldCheck, 
-  GraduationCap, 
-  User, 
-  FileSpreadsheet, 
-  RefreshCw,
-  Sun,
-  Moon
-} from 'lucide-react';
+  generateMonthDays 
+} from './data/initialData';
+import { 
+  loadStudents, 
+  saveStudents, 
+  loadAttendanceRecords, 
+  saveAttendanceRecords,
+  loadUserRole,
+  saveUserRole,
+  loadLockPastDates,
+  saveLockPastDates
+} from './utils/storage';
+import { fetchFromGoogleSheets, syncToGoogleSheets } from './utils/googleSync';
+import { Header, ViewTab } from './components/Header';
+import { MonthlyGridView } from './components/MonthlyGridView';
+import { DailyCheckinView } from './components/DailyCheckinView';
+import { StudentRosterView } from './components/StudentRosterView';
+import { AnalyticsView } from './components/AnalyticsView';
+import { ParentNotificationModal } from './components/ParentNotificationModal';
+import { GoogleSheetsExportModal } from './components/GoogleSheetsExportModal';
+import { MonthConfigModal } from './components/MonthConfigModal';
+import { RoleAuthModal } from './components/RoleAuthModal';
+import { ClearAttendanceModal } from './components/ClearAttendanceModal';
+import { 
+  getRecordKey, 
+  isStudentExcluded, 
+  sortStudents, 
+  getTodayDateStr,
+  isStudentAttendanceLocked
+} from './utils/attendanceHelpers';
+import { RefreshCw } from 'lucide-react';
 
-export function App() {
-  const [activeTab, setActiveTab] = useState<TabType>('monthly');
-  const [session, setSession] = useState<SessionType>('morning');
-  const [userRole, setUserRole] = useState<UserRole>('admin');
-  const [year, setYear] = useState<number>(2026);
-  const [month, setMonth] = useState<number>(8);
-
-  const [students, setStudents] = useState<Student[]>([]);
-  const [records, setRecords] = useState<Record<string, AttendanceRecord>>({});
-  const [isSyncing, setIsSyncing] = useState<boolean>(false);
-  const [lastSynced, setLastSynced] = useState<string>('');
-
-  // 8월 운영일 설정 예시 (필요에 따라 조율 가능)
-  const activeDays: DayConfig[] = useMemo(() => {
-    return [
-      { dateStr: '2026-08-19', dayNum: 19, dayOfWeek: '수' },
-      { dateStr: '2026-08-20', dayNum: 20, dayOfWeek: '목' },
-      { dateStr: '2026-08-21', dayNum: 21, dayOfWeek: '금' },
-      { dateStr: '2026-08-24', dayNum: 24, dayOfWeek: '월' },
-      { dateStr: '2026-08-25', dayNum: 25, dayOfWeek: '화' },
-      { dateStr: '2026-08-26', dayNum: 26, dayOfWeek: '수' },
-      { dateStr: '2026-08-27', dayNum: 27, dayOfWeek: '목' },
-      { dateStr: '2026-08-28', dayNum: 28, dayOfWeek: '금' },
-      { dateStr: '2026-08-31', dayNum: 31, dayOfWeek: '월' },
-    ];
-  }, []);
-
-  // 초기 구글 시트 데이터 로드
-  useEffect(() => {
-    const loadData = async () => {
-      setIsSyncing(true);
-      const data = await fetchFromGoogleSheets();
-      if (data) {
-        if (data.students && data.students.length > 0) {
-          setStudents(data.students);
-        }
-        if (data.records) {
-          setRecords(data.records);
-        }
-        setLastSynced(new Date().toLocaleTimeString());
+export default function App() {
+  const getInitialRole = (): UserRole => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlRole = params.get('role');
+      if (urlRole === 'admin' || urlRole === 'teacher' || urlRole === 'student') {
+        return urlRole as UserRole;
       }
-      setIsSyncing(false);
+      const hash = window.location.hash.replace(/^#/, '');
+      if (hash === 'admin' || hash === 'teacher' || hash === 'student') {
+        return hash as UserRole;
+      }
+      const hashParams = new URLSearchParams(hash);
+      const hashRole = hashParams.get('role');
+      if (hashRole === 'admin' || hashRole === 'teacher' || hashRole === 'student') {
+        return hashRole as UserRole;
+      }
+    }
+    return loadUserRole();
+  };
+
+  const [userRole, setUserRole] = useState<UserRole>(() => getInitialRole());
+  const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
+  const [targetRoleToSwitch, setTargetRoleToSwitch] = useState<UserRole>(userRole);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('role') !== userRole) {
+        url.searchParams.set('role', userRole);
+        window.history.replaceState({}, '', url.toString());
+      }
+    }
+  }, [userRole]);
+
+  useEffect(() => {
+    const handleUrlChange = () => {
+      const params = new URLSearchParams(window.location.search);
+      let urlRole = params.get('role');
+      if (!urlRole) {
+        const hash = window.location.hash.replace(/^#/, '');
+        if (hash === 'admin' || hash === 'teacher' || hash === 'student') {
+          urlRole = hash;
+        } else {
+          const hashParams = new URLSearchParams(hash);
+          urlRole = hashParams.get('role');
+        }
+      }
+      if (urlRole === 'admin' || urlRole === 'teacher' || urlRole === 'student') {
+        setUserRole(urlRole as UserRole);
+        saveUserRole(urlRole as UserRole);
+      }
     };
-    loadData();
+    window.addEventListener('popstate', handleUrlChange);
+    window.addEventListener('hashchange', handleUrlChange);
+    return () => {
+      window.removeEventListener('popstate', handleUrlChange);
+      window.removeEventListener('hashchange', handleUrlChange);
+    };
   }, []);
 
-  // 출결 상태 업데이트 핸들러
-  const handleUpdateRecord = async (
-    studentId: string, 
-    dateStr: string, 
-    status: AttendanceStatus, 
+  const [activeTab, setActiveTab] = useState<ViewTab>('monthly');
+  const [session, setSession] = useState<SessionType>('morning');
+
+  const todayStr = getTodayDateStr();
+  const todayYear = parseInt(todayStr.split('-')[0], 10) || 2026;
+  const todayMonth = parseInt(todayStr.split('-')[1], 10) || 8;
+
+  const [year, setYear] = useState<number>(todayYear);
+  const [month, setMonth] = useState<number>(todayMonth);
+
+  const handleRoleChange = (newRole: UserRole) => {
+    setUserRole(newRole);
+    saveUserRole(newRole);
+    if (newRole === 'teacher' && (activeTab === 'daily' || activeTab === 'students')) {
+      setActiveTab('monthly');
+    } else if (newRole === 'student' && (activeTab === 'students' || activeTab === 'analytics')) {
+      setActiveTab('monthly');
+    }
+  };
+
+  const handleOpenRoleModal = (targetRole?: UserRole) => {
+    setTargetRoleToSwitch(targetRole || userRole);
+    setIsRoleModalOpen(true);
+  };
+
+  const [students, setStudents] = useState<Student[]>(() => loadStudents());
+  const [records, setRecords] = useState<Record<string, AttendanceRecord>>(() => 
+    loadAttendanceRecords()
+  );
+
+  const studentsRef = useRef<Student[]>(students);
+  studentsRef.current = students;
+  const recordsRef = useRef<Record<string, AttendanceRecord>>(records);
+  recordsRef.current = records;
+
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncText, setLastSyncText] = useState<string>('');
+  const lastUserEditTimeRef = useRef<number>(0);
+  const debounceTimerRef = useRef<any>(null);
+
+  // 구글 시트로 데이터 전송
+  const triggerRemoteSync = (targetStudents?: Student[], targetRecords?: Record<string, AttendanceRecord>) => {
+    const s = targetStudents || studentsRef.current;
+    const r = targetRecords || recordsRef.current;
+
+    setIsSyncing(true);
+
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+
+    debounceTimerRef.current = setTimeout(async () => {
+      try {
+        await syncToGoogleSheets({
+          students: s,
+          records: r,
+          updatedAt: new Date().toISOString()
+        });
+        const now = new Date();
+        setLastSyncText(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`);
+      } catch (err) {
+        console.warn('Sync warning:', err);
+      } finally {
+        setIsSyncing(false);
+      }
+    }, 250);
+  };
+
+  // 구글 시트 원격 데이터 불러오기 (Single Source of Truth)
+  const refreshRemoteData = async (showLoading = true) => {
+    // 사용자가 방금 직접 수정한 경우 5초간 자동 새로고침 지연
+    if (Date.now() - lastUserEditTimeRef.current < 5000 && !showLoading) {
+      return;
+    }
+
+    if (showLoading) setIsSyncing(true);
+
+    try {
+      const remote = await fetchFromGoogleSheets();
+      if (remote) {
+        if (remote.students && Array.isArray(remote.students) && remote.students.length > 0) {
+          studentsRef.current = remote.students;
+          setStudents(remote.students);
+          saveStudents(remote.students);
+        }
+        if (remote.records && typeof remote.records === 'object') {
+          recordsRef.current = remote.records;
+          setRecords(remote.records);
+          saveAttendanceRecords(remote.records);
+        }
+        const now = new Date();
+        setLastSyncText(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`);
+      }
+    } catch (e) {
+      console.warn('Fetch error:', e);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshRemoteData(true);
+  }, []);
+
+  // 15초 주기 자동 동기화
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshRemoteData(false);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleUpdateStudents = (newStudents: Student[]) => {
+    lastUserEditTimeRef.current = Date.now();
+    const sorted = sortStudents(newStudents, [3, 2, 1], true);
+    studentsRef.current = sorted;
+    setStudents(sorted);
+    saveStudents(sorted);
+    triggerRemoteSync(sorted, recordsRef.current);
+  };
+
+  const [daysConfig, setDaysConfig] = useState<{
+    morning: DayConfig[];
+    night: DayConfig[];
+  }>(() => ({
+    morning: generateMonthDays(todayYear, todayMonth, 'morning', (todayYear === 2026 && todayMonth === 8) ? [19, 20, 21, 24, 25, 26, 27, 28, 31] : undefined),
+    night: generateMonthDays(todayYear, todayMonth, 'night', (todayYear === 2026 && todayMonth === 8) ? [20, 21, 24, 25, 27, 28, 31] : undefined),
+  }));
+
+  const allDaysInMonth = daysConfig[session] || [];
+  const activeDays = useMemo(() => allDaysInMonth.filter(d => d.enabled), [allDaysInMonth]);
+
+  const [selectedDateStr, setSelectedDateStr] = useState<string>(() => {
+    const today = getTodayDateStr();
+    const initActive = generateMonthDays(todayYear, todayMonth, 'morning', (todayYear === 2026 && todayMonth === 8) ? [19, 20, 21, 24, 25, 26, 27, 28, 31] : undefined).filter(d => d.enabled);
+    if (initActive.some(d => d.dateStr === today)) {
+      return today;
+    }
+    return initActive[0]?.dateStr || today;
+  });
+
+  useEffect(() => {
+    const today = getTodayDateStr();
+    if (activeDays.some(d => d.dateStr === today)) {
+      setSelectedDateStr(today);
+    } else if (activeDays.length > 0 && !activeDays.some(d => d.dateStr === selectedDateStr)) {
+      setSelectedDateStr(activeDays[0].dateStr);
+    }
+  }, [session, activeDays]);
+
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isMonthConfigModalOpen, setIsMonthConfigModalOpen] = useState(false);
+  const [isClearAttendanceModalOpen, setIsClearAttendanceModalOpen] = useState(false);
+
+  const [lockPastDates, setLockPastDates] = useState<boolean>(() => loadLockPastDates());
+  const handleToggleLockPastDates = () => {
+    setLockPastDates(prev => {
+      const next = !prev;
+      saveLockPastDates(next);
+      return next;
+    });
+  };
+
+  const [parentModalData, setParentModalData] = useState<{
+    isOpen: boolean;
+    dateStr: string;
+    list: { student: Student; status: AttendanceStatus; reason?: string }[];
+  }>({
+    isOpen: false,
+    dateStr: selectedDateStr,
+    list: [],
+  });
+
+  const handleSetYearMonth = (newYear: number, newMonth: number) => {
+    setYear(newYear);
+    setMonth(newMonth);
+    const newMorningDays = (newMonth === 8 && newYear === 2026)
+      ? generateMonthDays(newYear, newMonth, 'morning', [19, 20, 21, 24, 25, 26, 27, 28, 31])
+      : generateMonthDays(newYear, newMonth, 'morning');
+    const newNightDays = (newMonth === 8 && newYear === 2026)
+      ? generateMonthDays(newYear, newMonth, 'night', [20, 21, 24, 25, 27, 28, 31])
+      : generateMonthDays(newYear, newMonth, 'night');
+    setDaysConfig({ morning: newMorningDays, night: newNightDays });
+    
+    const currentActive = (session === 'morning' ? newMorningDays : newNightDays).filter(d => d.enabled);
+    const today = getTodayDateStr();
+    if (currentActive.some(d => d.dateStr === today)) {
+      setSelectedDateStr(today);
+    } else if (currentActive.length > 0) {
+      setSelectedDateStr(currentActive[0].dateStr);
+    }
+  };
+
+  // 단일 출결 수정
+  const handleUpdateRecord = (
+    studentId: string,
+    dateStr: string,
+    status: AttendanceStatus,
     reason?: string,
     checkInTime?: string
   ) => {
-    const key = `${studentId}_${session}_${dateStr}`;
-    const nowTime = checkInTime || `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`;
-    
-    const nextRecords = {
-      ...records,
-      [key]: {
-        studentId,
-        session,
-        dateStr,
-        status,
-        reason: reason !== undefined ? reason : records[key]?.reason,
-        checkInTime: records[key]?.checkInTime || nowTime,
-        updatedAt: new Date().toISOString(),
-      }
-    };
-    setRecords(nextRecords);
+    if (userRole === 'teacher') return;
+    if (userRole === 'student') {
+      const lockCheck = isStudentAttendanceLocked(session, dateStr);
+      if (lockCheck.isLocked) return;
+    }
 
-    // 구글 시트 백그라운드 동기화
-    syncToGoogleSheets({ records: nextRecords });
+    lastUserEditTimeRef.current = Date.now();
+    const key = getRecordKey(studentId, session, dateStr);
+    const now = new Date();
+    const currentTimestamp = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const prevRec = recordsRef.current[key];
+
+    let finalCheckInTime: string | undefined = undefined;
+    if (status !== 'NONE') {
+      finalCheckInTime = checkInTime !== undefined ? checkInTime : (prevRec?.checkInTime || currentTimestamp);
+    }
+
+    const nextRecords = { ...recordsRef.current };
+    if (status === 'NONE') {
+      delete nextRecords[key];
+    } else {
+      nextRecords[key] = {
+        status,
+        reason: reason !== undefined ? reason : prevRec?.reason,
+        checkInTime: finalCheckInTime,
+      };
+    }
+
+    recordsRef.current = nextRecords;
+    setRecords(nextRecords);
+    saveAttendanceRecords(nextRecords);
+    triggerRemoteSync(studentsRef.current, nextRecords);
   };
 
-  // 일괄 결석 처리
-  const handleFillDayAbsent = (dateStr: string, gradeFilter?: number) => {
-    const nextRecords = { ...records };
-    students.forEach(st => {
-      if (!st.active) return;
-      if (gradeFilter !== undefined && st.grade !== gradeFilter) return;
+  const handleBatchUpdateDay = (dateStr: string, status: AttendanceStatus, gradeFilter?: number) => {
+    if (userRole === 'teacher' || userRole === 'student') return;
+    lastUserEditTimeRef.current = Date.now();
+    const now = new Date();
+    const currentTimestamp = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-      const key = `${st.id}_${session}_${dateStr}`;
-      if (!nextRecords[key] || nextRecords[key].status === 'NONE') {
-        nextRecords[key] = {
-          studentId: st.id,
-          session,
-          dateStr,
-          status: 'ABSENT',
-          updatedAt: new Date().toISOString(),
-        };
+    const nextRecords = { ...recordsRef.current };
+    studentsRef.current
+      .filter(st => st.active && !isStudentExcluded(st, session, dateStr) && (gradeFilter === undefined || st.grade === gradeFilter))
+      .forEach(st => {
+        const key = getRecordKey(st.id, session, dateStr);
+        if (status === 'NONE') {
+          delete nextRecords[key];
+        } else {
+          nextRecords[key] = {
+            status,
+            reason: nextRecords[key]?.reason,
+            checkInTime: status !== 'NONE' ? (nextRecords[key]?.checkInTime || currentTimestamp) : undefined,
+          };
+        }
+      });
+
+    recordsRef.current = nextRecords;
+    setRecords(nextRecords);
+    saveAttendanceRecords(nextRecords);
+    triggerRemoteSync(studentsRef.current, nextRecords);
+  };
+
+  const handleFillDayAbsent = (dateStr: string, gradeFilter?: number) => {
+    if (userRole === 'teacher' || userRole === 'student') return;
+    lastUserEditTimeRef.current = Date.now();
+    const now = new Date();
+    const currentTimestamp = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    const nextRecords = { ...recordsRef.current };
+    studentsRef.current
+      .filter(st => st.active && !isStudentExcluded(st, session, dateStr) && (gradeFilter === undefined || st.grade === gradeFilter))
+      .forEach(st => {
+        const key = getRecordKey(st.id, session, dateStr);
+        const currentStatus = nextRecords[key]?.status;
+        if (!currentStatus || currentStatus === 'NONE') {
+          nextRecords[key] = {
+            status: 'ABSENT',
+            reason: nextRecords[key]?.reason,
+            checkInTime: currentTimestamp,
+          };
+        }
+      });
+
+    recordsRef.current = nextRecords;
+    setRecords(nextRecords);
+    saveAttendanceRecords(nextRecords);
+    triggerRemoteSync(studentsRef.current, nextRecords);
+  };
+
+  const handleToggleDay = (dateStr: string) => {
+    setDaysConfig(prev => ({
+      ...prev,
+      [session]: prev[session].map(d => (d.dateStr === dateStr ? { ...d, enabled: !d.enabled } : d)),
+    }));
+  };
+
+  const handleSetPreset = (preset: 'standard' | 'weekdays' | 'sample8' | 'all' | 'none') => {
+    if (preset === 'standard') {
+      const stdDays = month === 8 && year === 2026
+        ? (session === 'morning'
+            ? generateMonthDays(year, month, 'morning', [19, 20, 21, 24, 25, 26, 27, 28, 31])
+            : generateMonthDays(year, month, 'night', [20, 21, 24, 25, 27, 28, 31]))
+        : generateMonthDays(year, month, session);
+      setDaysConfig(prev => ({ ...prev, [session]: stdDays }));
+      return;
+    }
+    setDaysConfig(prev => ({
+      ...prev,
+      [session]: prev[session].map(d => {
+        let isEn = false;
+        if (preset === 'weekdays') {
+          isEn = session === 'night' 
+            ? (d.dayOfWeek !== '토' && d.dayOfWeek !== '일' && d.dayOfWeek !== '수')
+            : (d.dayOfWeek !== '토' && d.dayOfWeek !== '일');
+        } else if (preset === 'sample8') {
+          isEn = session === 'night'
+            ? [20, 21, 24, 25, 27, 28, 31].includes(d.dayNum)
+            : [19, 20, 21, 24, 25, 26, 27, 28, 31].includes(d.dayNum);
+        } else if (preset === 'all') isEn = true;
+        return { ...d, enabled: isEn };
+      }),
+    }));
+  };
+
+  const handleClearDate = (dateStr: string, gradeFilter?: number, targetSession?: SessionType | 'both') => {
+    lastUserEditTimeRef.current = Date.now();
+    const sessionToClear = targetSession || session;
+    const nextRecords = { ...recordsRef.current };
+    studentsRef.current
+      .filter(st => gradeFilter === undefined || st.grade === gradeFilter)
+      .forEach(st => {
+        if (sessionToClear === 'both') {
+          delete nextRecords[getRecordKey(st.id, 'morning', dateStr)];
+          delete nextRecords[getRecordKey(st.id, 'night', dateStr)];
+        } else {
+          delete nextRecords[getRecordKey(st.id, sessionToClear, dateStr)];
+        }
+      });
+
+    recordsRef.current = nextRecords;
+    setRecords(nextRecords);
+    saveAttendanceRecords(nextRecords);
+    triggerRemoteSync(studentsRef.current, nextRecords);
+  };
+
+  const handleClearMonthSession = (targetYear: number, targetMonth: number, targetSession: SessionType | 'both') => {
+    lastUserEditTimeRef.current = Date.now();
+    const monthPrefix = `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
+    const nextRecords = { ...recordsRef.current };
+    Object.keys(nextRecords).forEach(key => {
+      const parts = key.split('_');
+      if (parts.length >= 3) {
+        const keySession = parts[1] as SessionType;
+        const keyDate = parts[2];
+        const isMatchingSession = targetSession === 'both' || keySession === targetSession;
+        if (isMatchingSession && keyDate.startsWith(monthPrefix)) {
+          delete nextRecords[key];
+        }
       }
     });
+
+    recordsRef.current = nextRecords;
     setRecords(nextRecords);
-    syncToGoogleSheets({ records: nextRecords });
+    saveAttendanceRecords(nextRecords);
+    triggerRemoteSync(studentsRef.current, nextRecords);
   };
 
-  // 학생 학원 요일 업데이트
-  const handleUpdateStudents = (updatedStudents: Student[]) => {
-    setStudents(updatedStudents);
-    syncToGoogleSheets({ students: updatedStudents });
+  const handleClearAll = () => {
+    lastUserEditTimeRef.current = Date.now();
+    recordsRef.current = {};
+    setRecords({});
+    saveAttendanceRecords({});
+    triggerRemoteSync(studentsRef.current, {});
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
-      {/* 상단 네비게이션 바 */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-          
-          {/* 로고 & 변경된 타이틀 */}
-          <div className="flex items-center gap-3">
-            <div className="h-9 px-2.5 py-1 bg-[#801B2B] rounded-xl flex items-center justify-center shadow-xs">
-              <svg viewBox="0 0 240 105" className="h-full w-auto text-white fill-current">
-                <text x="15" y="75" fontFamily="serif" fontSize="68" fontWeight="bold" fill="currentColor">崇</text>
-                <polygon points="120,45 230,88 230,96 120,70 10,96 10,88" fill="currentColor" />
-                <text x="175" y="75" fontFamily="serif" fontSize="68" fontWeight="bold" fill="currentColor">信</text>
-              </svg>
-            </div>
-            <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight">
-              숭신고 미래인재반 출석부
-            </h1>
-          </div>
-
-          {/* 중앙 메뉴 탭 */}
-          <nav className="hidden md:flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold">
-            <button
-              onClick={() => setActiveTab('monthly')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg transition-all ${
-                activeTab === 'monthly' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-              }`}
-            >
-              <Calendar className="w-4 h-4" />
-              월간 출석부
-            </button>
-            <button
-              onClick={() => setActiveTab('analytics')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg transition-all ${
-                activeTab === 'analytics' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-              }`}
-            >
-              <BarChart3 className="w-4 h-4" />
-              통계 및 분석
-            </button>
-          </nav>
-
-          {/* 우측 권한 및 동기화 상태 */}
-          <div className="flex items-center gap-2.5">
-            <div className="hidden lg:flex items-center gap-1.5 text-3xs text-slate-400 font-mono">
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-indigo-500' : ''}`} />
-              <span>{lastSynced ? `동기화: ${lastSynced}` : '대기 중'}</span>
-            </div>
-
-            <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-3xs font-bold">
-              <button
-                onClick={() => setUserRole('admin')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  userRole === 'admin' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400'
-                }`}
-              >
-                관리자
-              </button>
-              <button
-                onClick={() => setUserRole('student')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  userRole === 'student' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400'
-                }`}
-              >
-                학생
-              </button>
-            </div>
-          </div>
-
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+      
+      {/* Realtime Sync Status Indicator */}
+      <div className="bg-slate-900 text-slate-300 text-3xs px-4 py-1 flex items-center justify-between border-b border-slate-800">
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-amber-400 animate-spin' : 'bg-emerald-400'}`} />
+          <span>{isSyncing ? '구글 스프레드시트 동기화 중...' : '구글 시트 실시간 연결됨'}</span>
+          {lastSyncText && <span className="opacity-75 font-semibold text-emerald-300">(마지막 동기화: {lastSyncText})</span>}
         </div>
-      </header>
+        <button 
+          onClick={() => refreshRemoteData(true)} 
+          className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer text-indigo-300 font-bold"
+        >
+          <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+          <span>지금 동기화</span>
+        </button>
+      </div>
 
-      {/* 메인 컨텐츠 영역 */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
+      <Header
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        session={session}
+        setSession={setSession}
+        year={year}
+        month={month}
+        setYearMonth={handleSetYearMonth}
+        onOpenExportModal={() => setIsExportModalOpen(true)}
+        onOpenMonthConfigModal={() => setIsMonthConfigModalOpen(true)}
+        onClearAttendance={() => setIsClearAttendanceModalOpen(true)}
+        studentCount={students.length}
+        userRole={userRole}
+        onOpenRoleModal={handleOpenRoleModal}
+        onDirectSelectRole={handleRoleChange}
+        lockPastDates={lockPastDates}
+        onToggleLockPastDates={handleToggleLockPastDates}
+      />
+
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {activeTab === 'monthly' && (
           <MonthlyGridView
             students={students}
@@ -215,9 +528,49 @@ export function App() {
             activeDays={activeDays}
             records={records}
             onUpdateRecord={handleUpdateRecord}
+            onBatchUpdateDay={handleBatchUpdateDay}
             onFillDayAbsent={handleFillDayAbsent}
             onUpdateStudents={handleUpdateStudents}
             onSessionChange={setSession}
+            onClearDate={handleClearDate}
+            onOpenClearModal={() => setIsClearAttendanceModalOpen(true)}
+            userRole={userRole}
+            lockPastDates={lockPastDates}
+            onToggleLockPastDates={handleToggleLockPastDates}
+          />
+        )}
+
+        {activeTab === 'daily' && (
+          <DailyCheckinView
+            students={students}
+            session={session}
+            setSession={setSession}
+            activeDays={activeDays}
+            selectedDateStr={selectedDateStr}
+            setSelectedDateStr={setSelectedDateStr}
+            records={records}
+            onUpdateRecord={handleUpdateRecord}
+            onBatchUpdateDay={handleBatchUpdateDay}
+            onFillDayAbsent={handleFillDayAbsent}
+            onOpenParentModal={list => {
+              setParentModalData({
+                isOpen: true,
+                dateStr: selectedDateStr,
+                list,
+              });
+            }}
+            onClearDate={handleClearDate}
+            onOpenClearModal={() => setIsClearAttendanceModalOpen(true)}
+            userRole={userRole}
+            lockPastDates={lockPastDates}
+            onToggleLockPastDates={handleToggleLockPastDates}
+          />
+        )}
+
+        {activeTab === 'students' && (
+          <StudentRosterView
+            students={students}
+            onUpdateStudents={handleUpdateStudents}
             userRole={userRole}
           />
         )}
@@ -234,8 +587,60 @@ export function App() {
           />
         )}
       </main>
+
+      <RoleAuthModal
+        isOpen={isRoleModalOpen}
+        onClose={() => setIsRoleModalOpen(false)}
+        targetRole={targetRoleToSwitch}
+        currentRole={userRole}
+        onConfirmRole={handleRoleChange}
+      />
+
+      <GoogleSheetsExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        session={session}
+        year={year}
+        month={month}
+        activeDays={activeDays}
+        students={students}
+        records={records}
+      />
+
+      <MonthConfigModal
+        isOpen={isMonthConfigModalOpen}
+        onClose={() => setIsMonthConfigModalOpen(false)}
+        session={session}
+        year={year}
+        month={month}
+        allDaysInMonth={allDaysInMonth}
+        onToggleDay={handleToggleDay}
+        onSetPreset={handleSetPreset}
+      />
+
+      <ParentNotificationModal
+        isOpen={parentModalData.isOpen}
+        onClose={() => setParentModalData(prev => ({ ...prev, isOpen: false }))}
+        session={session}
+        dateStr={parentModalData.dateStr}
+        absentList={parentModalData.list}
+      />
+
+      <ClearAttendanceModal
+        isOpen={isClearAttendanceModalOpen}
+        onClose={() => setIsClearAttendanceModalOpen(false)}
+        year={year}
+        month={month}
+        session={session}
+        activeDays={activeDays}
+        currentSelectedDateStr={selectedDateStr}
+        onClearDate={handleClearDate}
+        onClearMonthSession={handleClearMonthSession}
+        onClearAll={handleClearAll}
+        userRole={userRole}
+        onOpenRoleModal={() => handleOpenRoleModal('admin')}
+      />
+
     </div>
   );
 }
-
-export default App;
