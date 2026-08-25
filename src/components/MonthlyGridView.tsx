@@ -10,21 +10,20 @@ import {
   DayConfig, 
   AttendanceStatus, 
   AttendanceRecord,
-  UserRole 
-} from '../types/attendance';
-import { 
+  UserRole,
   STATUS_CYCLE, 
   STATUS_ICONS, 
-  STATUS_LABELS,
+  STATUS_LABELS
+} from '../types/attendance';
+import { 
   getRecordKey,
   isStudentExcluded,
-  isStudentExcludedOnDate,
   calculateStudentMonthlyStats,
   isPastDate,
   getTodayDateStr,
   isStudentAttendanceLocked
 } from '../utils/attendanceHelpers';
-import { Search, Printer, RotateCcw, AlertTriangle, Lock } from 'lucide-react';
+import { Search, Printer, RotateCcw } from 'lucide-react';
 
 interface MonthlyGridViewProps {
   students: Student[];
@@ -48,15 +47,9 @@ interface MonthlyGridViewProps {
 export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
   students,
   session,
-  year,
-  month,
   activeDays,
   records,
   onUpdateRecord,
-  onBatchUpdateDay,
-  onFillDayAbsent,
-  onUpdateStudents,
-  onSessionChange,
   onOpenClearModal,
   userRole = 'teacher',
   lockPastDates = false,
@@ -91,7 +84,6 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* 상단 툴바 */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <button
@@ -147,7 +139,6 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
         </div>
       </div>
 
-      {/* 메인 출석부 테이블 */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-center border-collapse text-xs">
@@ -190,7 +181,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
                             const key = getRecordKey(student.id, session, day.dateStr);
                             const rec = records[key];
                             const status = rec?.status || 'NONE';
-                            const isExcluded = isStudentExcludedOnDate(student, session, day.dateStr);
+                            const isExcluded = isStudentExcluded(student, session, day.dateStr);
                             const isLocked = (userRole === 'student' && isStudentAttendanceLocked(session, day.dateStr).isLocked) ||
                                              (lockPastDates && isPastDate(day.dateStr, todayStr));
 
