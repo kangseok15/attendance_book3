@@ -39,7 +39,6 @@ export const MonthlyGridView: React.FC<any> = (props) => {
   const {
     students = [],
     session = 'morning',
-    year = 2026,
     month = 8,
     activeDays = [],
     records = {},
@@ -131,10 +130,10 @@ export const MonthlyGridView: React.FC<any> = (props) => {
 
   return (
     <div className="space-y-4">
-      {/* 1. 상단 타이틀 및 안내 박스 */}
-      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+      {/* 1. 상단 타이틀 & 옵션 바 */}
+      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
               숭신고등학교 미래인재반 {month}월 {session === 'morning' ? '아침 자율학습' : '야간 자율학습'} 출석부
             </h2>
@@ -179,7 +178,6 @@ export const MonthlyGridView: React.FC<any> = (props) => {
           </div>
         </div>
 
-        {/* 필터 및 검색 바 */}
         <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-1.5">
             <button
@@ -249,19 +247,20 @@ export const MonthlyGridView: React.FC<any> = (props) => {
         </span>
       </div>
 
-      {/* 3. 메인 출석부 테이블 */}
+      {/* 3. 메인 출석부 테이블 (틀 고정 및 학년별 재적/현원 통계 행 포함) */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto max-h-[720px] relative">
           <table className="w-full text-center border-collapse text-xs">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-500 font-semibold">
-                <th className="py-2.5 px-2 w-10">연번</th>
-                <th className="py-2.5 px-2 w-10">학년</th>
-                <th className="py-2.5 px-2 w-10">반</th>
-                <th className="py-2.5 px-2 w-10">번호</th>
-                <th className="py-2.5 px-3 w-20 text-left">이름</th>
+            {/* 상단 헤더 틀 고정 (sticky top-0) */}
+            <thead className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-xs">
+              <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-600 font-semibold">
+                <th className="py-2.5 px-2 w-10 sticky left-0 z-30 bg-slate-50 dark:bg-slate-800">연번</th>
+                <th className="py-2.5 px-2 w-10 sticky left-10 z-30 bg-slate-50 dark:bg-slate-800">학년</th>
+                <th className="py-2.5 px-2 w-10 sticky left-20 z-30 bg-slate-50 dark:bg-slate-800">반</th>
+                <th className="py-2.5 px-2 w-10 sticky left-30 z-30 bg-slate-50 dark:bg-slate-800">번호</th>
+                <th className="py-2.5 px-3 w-20 sticky left-40 z-30 bg-slate-50 dark:bg-slate-800 text-left border-r border-slate-200 dark:border-slate-700 shadow-sm">이름</th>
 
-                {/* 날짜 헤더 + 전체 결석 일괄 처리(X 버튼) */}
+                {/* 날짜 헤더 + 결석 일괄 처리(X) */}
                 {(activeDays as DayConfig[]).map(day => (
                   <th key={day.dateStr} className="py-2 px-1 min-w-[34px] border-l border-slate-100 dark:border-slate-800">
                     <div className="font-bold text-slate-800 dark:text-slate-200">{day.dayNum}</div>
@@ -280,9 +279,9 @@ export const MonthlyGridView: React.FC<any> = (props) => {
                 <th className="py-2.5 px-2 w-12 text-emerald-600 border-l border-slate-200">출석</th>
                 <th className="py-2.5 px-2 w-12 text-rose-600">결석</th>
                 <th className="py-2.5 px-2 w-14 text-indigo-600">출석률</th>
-                <th className="py-2.5 px-3 border-l border-slate-200 text-slate-600 font-bold">
+                <th className="py-2.5 px-3 border-l border-slate-200 text-slate-600 font-bold min-w-[140px]">
                   <div>학원 가는 요일</div>
-                  <div className="text-3xs font-normal text-rose-500">월·화·수·목·금 (체크 시 미참여)</div>
+                  <div className="text-3xs font-normal text-rose-500">월·화·수·목·금 (체크 시 음영)</div>
                 </th>
               </tr>
             </thead>
@@ -297,11 +296,11 @@ export const MonthlyGridView: React.FC<any> = (props) => {
                       const stats = getStudentStats(student);
                       return (
                         <tr key={student.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                          <td className="py-2 px-1 text-slate-400 font-mono text-3xs">{idx + 1}</td>
-                          <td className="py-2 px-1 font-semibold">{student.grade}</td>
-                          <td className="py-2 px-1">{student.classNum}</td>
-                          <td className="py-2 px-1">{student.studentNum}</td>
-                          <td className="py-2 px-3 font-bold text-slate-900 dark:text-white text-left whitespace-nowrap">{student.name}</td>
+                          <td className="py-2 px-1 text-slate-400 font-mono text-3xs sticky left-0 z-10 bg-white dark:bg-slate-900">{idx + 1}</td>
+                          <td className="py-2 px-1 font-semibold sticky left-10 z-10 bg-white dark:bg-slate-900">{student.grade}</td>
+                          <td className="py-2 px-1 sticky left-20 z-10 bg-white dark:bg-slate-900">{student.classNum}</td>
+                          <td className="py-2 px-1 sticky left-30 z-10 bg-white dark:bg-slate-900">{student.studentNum}</td>
+                          <td className="py-2 px-3 font-bold text-slate-900 dark:text-white text-left whitespace-nowrap sticky left-40 z-10 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 shadow-sm">{student.name}</td>
 
                           {/* 출결 셀 */}
                           {(activeDays as DayConfig[]).map(day => {
@@ -351,7 +350,7 @@ export const MonthlyGridView: React.FC<any> = (props) => {
                                     onClick={() => handleToggleAcademyDay(student, day)}
                                     className={`w-5 h-5 rounded text-3xs font-bold transition-colors ${
                                       isSelected
-                                        ? 'bg-rose-600 text-white'
+                                        ? 'bg-rose-600 text-white shadow-xs'
                                         : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200'
                                     }`}
                                   >
@@ -364,6 +363,37 @@ export const MonthlyGridView: React.FC<any> = (props) => {
                         </tr>
                       );
                     })}
+
+                    {/* 학년별 재적 및 일별 현원(출석) 요약 바 */}
+                    <tr className="bg-slate-50 dark:bg-slate-800/80 font-semibold text-3xs text-slate-600 dark:text-slate-300 border-t border-b border-slate-200 dark:border-slate-700">
+                      <td colSpan={5} className="py-1.5 px-3 text-right font-bold sticky left-0 z-10 bg-slate-50 dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 shadow-sm">
+                        {grade}학년 재적 ({gradeStudents.length}명)
+                      </td>
+                      {(activeDays as DayConfig[]).map(day => (
+                        <td key={day.dateStr} className="py-1 px-1 border-l border-slate-200 dark:border-slate-700 text-center font-bold">
+                          {gradeStudents.length}
+                        </td>
+                      ))}
+                      <td colSpan={4} className="border-l border-slate-200 dark:border-slate-700"></td>
+                    </tr>
+                    <tr className="bg-indigo-50/50 dark:bg-indigo-950/20 font-bold text-3xs text-indigo-700 dark:text-indigo-300 border-b-2 border-indigo-200 dark:border-indigo-900">
+                      <td colSpan={5} className="py-1.5 px-3 text-right font-bold sticky left-0 z-10 bg-indigo-50 dark:bg-indigo-950/40 border-r border-slate-200 dark:border-slate-700 shadow-sm">
+                        {grade}학년 현원(출석)
+                      </td>
+                      {(activeDays as DayConfig[]).map(day => {
+                        const dayAttendedCount = gradeStudents.filter(st => {
+                          const k = getRecordKey(st.id, session as SessionType, day.dateStr);
+                          const s = records[k]?.status;
+                          return s === 'PRESENT' || s === 'LATE' || s === 'EARLY_LEAVE' || s === 'OFFICIAL_ABSENT';
+                        }).length;
+                        return (
+                          <td key={day.dateStr} className="py-1 px-1 border-l border-indigo-100 dark:border-indigo-900/50 text-center">
+                            {dayAttendedCount}
+                          </td>
+                        );
+                      })}
+                      <td colSpan={4} className="border-l border-indigo-100 dark:border-indigo-900/50"></td>
+                    </tr>
                   </React.Fragment>
                 );
               })}
