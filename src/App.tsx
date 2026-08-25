@@ -39,9 +39,7 @@ import { ClearAttendanceModal } from './components/ClearAttendanceModal';
 import { 
   getRecordKey, 
   isStudentExcluded, 
-  isStudentExcludedOnDate, 
   sortStudents, 
-  isPastDate, 
   getTodayDateStr,
   isStudentAttendanceLocked
 } from './utils/attendanceHelpers';
@@ -147,9 +145,8 @@ export default function App() {
   const [lastSyncText, setLastSyncText] = useState<string>('');
   const lastUserEditTimeRef = useRef<number>(0);
   const debounceTimerRef = useRef<any>(null);
-  const statusResetTimerRef = useRef<any>(null);
 
-  // 구글 시트로 백그라운드 전송 (화면 멈춤 방지)
+  // 구글 시트로 데이터 전송
   const triggerRemoteSync = (targetStudents?: Student[], targetRecords?: Record<string, AttendanceRecord>) => {
     const s = targetStudents || studentsRef.current;
     const r = targetRecords || recordsRef.current;
@@ -157,7 +154,6 @@ export default function App() {
     setIsSyncing(true);
 
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    if (statusResetTimerRef.current) clearTimeout(statusResetTimerRef.current);
 
     debounceTimerRef.current = setTimeout(async () => {
       try {
@@ -173,17 +169,13 @@ export default function App() {
       } finally {
         setIsSyncing(false);
       }
-    }, 200);
-
-    // 1.5초 안전 타이머: 어떤 경우에도 1.5초 후에는 강제로 멈춤 상태 해제
-    statusResetTimerRef.current = setTimeout(() => {
-      setIsSyncing(false);
-    }, 1500);
+    }, 250);
   };
 
-  // 구글 시트 원격 데이터 불러오기
+  // 구글 시트 원격 데이터 불러오기 (Single Source of Truth)
   const refreshRemoteData = async (showLoading = true) => {
-    if (Date.now() - lastUserEditTimeRef.current < 6000 && !showLoading) {
+    // 사용자가 방금 직접 수정한 경우 5초간 자동 새로고침 지연
+    if (Date.now() - lastUserEditTimeRef.current < 5000 && !showLoading) {
       return;
     }
 
@@ -216,10 +208,11 @@ export default function App() {
     refreshRemoteData(true);
   }, []);
 
+  // 15초 주기 자동 동기화
   useEffect(() => {
     const interval = setInterval(() => {
       refreshRemoteData(false);
-    }, 20000);
+    }, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -304,6 +297,7 @@ export default function App() {
     }
   };
 
+  // 단일 출결 수정
   const handleUpdateRecord = (
     studentId: string,
     dateStr: string,
@@ -494,7 +488,7 @@ export default function App() {
         <div className="flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-amber-400 animate-spin' : 'bg-emerald-400'}`} />
           <span>{isSyncing ? '구글 스프레드시트 동기화 중...' : '구글 시트 실시간 연결됨'}</span>
-          {lastSyncText && <span className="opacity-60">(마지막 동기화: {lastSyncText})</span>}
+          {lastSyncText && <span className="opacity-75 font-semibold text-emerald-300">(마지막 동기화: {lastSyncText})</span>}
         </div>
         <button 
           onClick={() => refreshRemoteData(true)} 
