@@ -10,10 +10,7 @@ import {
   DayConfig, 
   AttendanceStatus, 
   AttendanceRecord,
-  UserRole,
-  STATUS_CYCLE, 
-  STATUS_ICONS, 
-  STATUS_LABELS
+  UserRole 
 } from '../types/attendance';
 import { 
   getRecordKey,
@@ -25,21 +22,32 @@ import {
 } from '../utils/attendanceHelpers';
 import { Search, Printer, RotateCcw } from 'lucide-react';
 
+const STATUS_CYCLE: AttendanceStatus[] = ['PRESENT', 'LATE', 'EARLY_LEAVE', 'OFFICIAL_ABSENT', 'ABSENT', 'NONE'];
+
+const STATUS_ICONS: Record<AttendanceStatus, string> = {
+  PRESENT: '○',
+  LATE: '△',
+  EARLY_LEAVE: '∅',
+  OFFICIAL_ABSENT: '공',
+  ABSENT: 'X',
+  NONE: ''
+};
+
 interface MonthlyGridViewProps {
   students: Student[];
   session: SessionType;
-  year: number;
-  month: number;
+  year?: number;
+  month?: number;
   activeDays: DayConfig[];
   records: Record<string, AttendanceRecord>;
   onUpdateRecord: (studentId: string, dateStr: string, status: AttendanceStatus, reason?: string) => void;
-  onBatchUpdateDay: (dateStr: string, status: AttendanceStatus, gradeFilter?: number) => void;
-  onFillDayAbsent: (dateStr: string, gradeFilter?: number) => void;
-  onUpdateStudents: (students: Student[]) => void;
-  onSessionChange: (session: SessionType) => void;
+  onBatchUpdateDay?: (dateStr: string, status: AttendanceStatus, gradeFilter?: number) => void;
+  onFillDayAbsent?: (dateStr: string, gradeFilter?: number) => void;
+  onUpdateStudents?: (students: Student[]) => void;
+  onSessionChange?: (session: SessionType) => void;
   onClearDate?: (dateStr: string, gradeFilter?: number, targetSession?: SessionType | 'both') => void;
   onOpenClearModal?: () => void;
-  userRole?: UserRole;
+  userRole?: UserRole | string;
   lockPastDates?: boolean;
   onToggleLockPastDates?: () => void;
 }
