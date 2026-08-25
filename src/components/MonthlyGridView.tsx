@@ -18,9 +18,10 @@ import {
   isStudentExcluded,
   isPastDate,
   getTodayDateStr,
-  isStudentAttendanceLocked
+  isStudentAttendanceLocked,
+  determineAttendanceStatusByTime
 } from '../utils/attendanceHelpers';
-import { Search, Printer, RotateCcw, Lightbulb } from 'lucide-react';
+import { Search, Printer, RotateCcw, Lightbulb, Clock, FileText } from 'lucide-react';
 
 const STATUS_CYCLE: AttendanceStatus[] = ['PRESENT', 'LATE', 'EARLY_LEAVE', 'OFFICIAL_ABSENT', 'ABSENT', 'NONE'];
 
@@ -33,12 +34,22 @@ const STATUS_ICONS: Record<AttendanceStatus, string> = {
   NONE: ''
 };
 
+const STATUS_NAMES: Record<AttendanceStatus, string> = {
+  PRESENT: '출석',
+  LATE: '지각',
+  EARLY_LEAVE: '조퇴',
+  OFFICIAL_ABSENT: '공결',
+  ABSENT: '결석',
+  NONE: '미체크'
+};
+
 const WEEKDAYS: DayOfWeek[] = ['월', '화', '수', '목', '금'];
 
 export const MonthlyGridView: React.FC<any> = (props) => {
   const {
     students = [],
     session = 'morning',
+    year = 2026,
     month = 8,
     activeDays = [],
     records = {},
@@ -55,14 +66,37 @@ export const MonthlyGridView: React.FC<any> = (props) => {
   const [gradeFilter, setGradeFilter] = useState<number | 'all'>('all');
   const todayStr = getTodayDateStr();
 
+  // 사유 입력 및 상세 보기 모달 상태
+  const [detailModal, setDetailModal] = useState<{
+    isOpen: boolean;
+    student?: Student;
+    dateStr: string;
+    record?: AttendanceRecord;
+    reasonText: string;
+  }>({
+    isOpen: false,
+    dateStr: '',
+    reasonText: '',
+  });
+
   const handleCellClick = (student: Student, dateStr: string) => {
-    if (userRole === 'teacher') return;
+    if (lockPastDates && isPastDate(dateStr, todayStr) && userRole !== 'admin') return;
+
+    // 학생 모드: 시간 자동 판정 (아침 07:30 / 야간 17:30 기준)
     if (userRole === 'student') {
       const lockCheck = isStudentAttendanceLocked(session, dateStr);
-      if (lockCheck.isLocked) return;
+      if (lockCheck.isLocked) {
+        alert(lockCheck.reason);
+        return;
+      }
+      const timeResult = determineAttendanceStatusByTime(session);
+      if (onUpdateRecord) {
+        onUpdateRecord(student.id, dateStr, timeResult.status, undefined, timeResult.timeStr);
+      }
+      return;
     }
-    if (lockPastDates && isPastDate(dateStr, todayStr)) return;
 
+    // 교사/관리자: 순환 변경
     const key = getRecordKey(student.id, session, dateStr);
     const currentStatus = records[key]?.status || 'NONE';
     const currentIndex = STATUS_CYCLE.indexOf(currentStatus);
@@ -72,8 +106,34 @@ export const MonthlyGridView: React.FC<any> = (props) => {
     }
   };
 
+  const handleOpenDetail = (e: React.MouseEvent, student: Student, dateStr: string) => {
+    e.preventDefault();
+    const key = getRecordKey(student.id, session, dateStr);
+    const rec = records[key];
+    setDetailModal({
+      isOpen: true,
+      student,
+      dateStr,
+      record: rec,
+      reasonText: rec?.reason || '',
+    });
+  };
+
+  const handleSaveReason = (statusToSet?: AttendanceStatus) => {
+    if (!detailModal.student || !onUpdateRecord) return;
+    const currentStatus = statusToSet || detailModal.record?.status || 'OFFICIAL_ABSENT';
+    onUpdateRecord(
+      detailModal.student.id,
+      detailModal.dateStr,
+      currentStatus,
+      detailModal.reasonText,
+      detailModal.record?.checkInTime
+    );
+    setDetailModal(prev => ({ ...prev, isOpen: false }));
+  };
+
   const handleToggleAcademyDay = (student: Student, day: DayOfWeek) => {
-    if (userRole === 'teacher' || userRole === 'student') return;
+    if (userRole === 'student') return;
     const currentDays = student.academyDays || [];
     const nextDays = currentDays.includes(day)
       ? currentDays.filter(d => d !== day)
@@ -130,7 +190,7 @@ export const MonthlyGridView: React.FC<any> = (props) => {
 
   return (
     <div className="space-y-4">
-      {/* 1. 상단 타이틀 & 옵션 바 */}
+      {/* 1. 상단 타이틀 & 옵션 안내 바 */}
       <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -163,18 +223,14 @@ export const MonthlyGridView: React.FC<any> = (props) => {
 
         <div className="flex flex-wrap items-center gap-2 text-3xs">
           <div className="bg-slate-50 dark:bg-slate-800/80 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">
-            <span className="font-bold mr-1">셀 클릭 순서:</span>
-            <span>빈칸 → </span>
-            <span className="text-emerald-600 font-bold">출석(○)</span> → 
-            <span className="text-amber-600 font-bold"> 지각(△)</span> → 
-            <span className="text-purple-600 font-bold"> 조퇴(∅)</span> → 
-            <span className="text-blue-600 font-bold"> 공결(공)</span> → 
-            <span className="text-rose-600 font-bold"> 결석(X)</span> → 빈칸
+            <span className="font-bold mr-1">체크 기준:</span>
+            <span>아침 07:30 이후 / 야자 17:30 이후 체크 시 </span>
+            <span className="text-amber-600 font-bold">자동 지각(△) 처리</span>
           </div>
 
           <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-700 dark:text-amber-300 px-2.5 py-1 rounded-md flex items-center gap-1 font-medium">
             <Lightbulb className="w-3 h-3 text-amber-500 shrink-0" />
-            <span>학원 가는 날(음영 셀)에도 필요 시 출결을 자유롭게 클릭하여 체크할 수 있습니다.</span>
+            <span>셀을 마우스 우클릭(길게 터치)하면 <b>사유(병원/학원) 입력 및 체크인 시각</b>을 확인할 수 있습니다.</span>
           </div>
         </div>
 
@@ -243,15 +299,14 @@ export const MonthlyGridView: React.FC<any> = (props) => {
         <span className="inline-flex items-center gap-1"><span className="w-4 h-4 rounded bg-purple-50 text-purple-600 font-bold flex items-center justify-center border border-purple-200">∅</span> 조퇴 (∅)</span>
         <span className="inline-flex items-center gap-1"><span className="w-4 h-4 rounded bg-blue-50 text-blue-600 font-bold flex items-center justify-center border border-blue-200">공</span> 공결</span>
         <span className="inline-flex items-center gap-1 ml-auto text-slate-400">
-          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-bold border border-slate-300">학원</span> 음영 셀: 학원/미참여일 (클릭 시 정상 출결 입력 가능)
+          <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 font-bold border border-slate-300">음영 셀</span> 학원/미참여일
         </span>
       </div>
 
-      {/* 3. 메인 출석부 테이블 (틀 고정 및 학년별 재적/현원 통계 행 포함) */}
+      {/* 3. 메인 출석부 테이블 (틀 고정 및 학년/전체 통계 완벽 포함) */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="overflow-x-auto max-h-[720px] relative">
           <table className="w-full text-center border-collapse text-xs">
-            {/* 상단 헤더 틀 고정 (sticky top-0) */}
             <thead className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-800 shadow-xs">
               <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-600 font-semibold">
                 <th className="py-2.5 px-2 w-10 sticky left-0 z-30 bg-slate-50 dark:bg-slate-800">연번</th>
@@ -260,7 +315,6 @@ export const MonthlyGridView: React.FC<any> = (props) => {
                 <th className="py-2.5 px-2 w-10 sticky left-30 z-30 bg-slate-50 dark:bg-slate-800">번호</th>
                 <th className="py-2.5 px-3 w-20 sticky left-40 z-30 bg-slate-50 dark:bg-slate-800 text-left border-r border-slate-200 dark:border-slate-700 shadow-sm">이름</th>
 
-                {/* 날짜 헤더 + 결석 일괄 처리(X) */}
                 {(activeDays as DayConfig[]).map(day => (
                   <th key={day.dateStr} className="py-2 px-1 min-w-[34px] border-l border-slate-100 dark:border-slate-800">
                     <div className="font-bold text-slate-800 dark:text-slate-200">{day.dayNum}</div>
@@ -308,15 +362,16 @@ export const MonthlyGridView: React.FC<any> = (props) => {
                             const rec = records[key];
                             const status = rec?.status || 'NONE';
                             const isExcluded = isStudentExcluded(student, session as SessionType, day.dateStr);
-                            const isLocked = (userRole === 'student' && isStudentAttendanceLocked(session, day.dateStr).isLocked) ||
-                                             (lockPastDates && isPastDate(day.dateStr, todayStr));
+                            const isLocked = lockPastDates && isPastDate(day.dateStr, todayStr) && userRole !== 'admin';
 
                             return (
                               <td 
                                 key={day.dateStr}
                                 onClick={() => !isLocked && handleCellClick(student, day.dateStr)}
-                                className={`py-1.5 px-1 border-l border-slate-100 dark:border-slate-800 text-center select-none ${
-                                  isExcluded ? 'bg-slate-100/70 dark:bg-slate-800/50' :
+                                onContextMenu={(e) => handleOpenDetail(e, student, day.dateStr)}
+                                title={rec?.reason ? `사유: ${rec.reason} (${rec.checkInTime || ''})` : (rec?.checkInTime ? `기록시각: ${rec.checkInTime}` : '우클릭 시 사유 입력/확인')}
+                                className={`py-1.5 px-1 border-l border-slate-100 dark:border-slate-800 text-center select-none relative ${
+                                  isExcluded ? 'bg-slate-200/70 dark:bg-slate-800/80 font-bold' :
                                   isLocked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:bg-indigo-50/50'
                                 }`}
                               >
@@ -329,11 +384,13 @@ export const MonthlyGridView: React.FC<any> = (props) => {
                                 }`}>
                                   {STATUS_ICONS[status]}
                                 </span>
+                                {rec?.reason && (
+                                  <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-blue-500 rounded-full" />
+                                )}
                               </td>
                             );
                           })}
 
-                          {/* 통계 열 */}
                           <td className="py-2 px-1 font-bold text-emerald-600 border-l border-slate-200">{stats.attendedDays}</td>
                           <td className="py-2 px-1 font-bold text-rose-600">{stats.absentCount}</td>
                           <td className="py-2 px-1 font-bold text-indigo-600">{stats.rate}%</td>
@@ -364,7 +421,7 @@ export const MonthlyGridView: React.FC<any> = (props) => {
                       );
                     })}
 
-                    {/* 학년별 재적 및 일별 현원(출석) 요약 바 */}
+                    {/* 학년별 재적 및 현원 통계 행 */}
                     <tr className="bg-slate-50 dark:bg-slate-800/80 font-semibold text-3xs text-slate-600 dark:text-slate-300 border-t border-b border-slate-200 dark:border-slate-700">
                       <td colSpan={5} className="py-1.5 px-3 text-right font-bold sticky left-0 z-10 bg-slate-50 dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 shadow-sm">
                         {grade}학년 재적 ({gradeStudents.length}명)
@@ -397,10 +454,103 @@ export const MonthlyGridView: React.FC<any> = (props) => {
                   </React.Fragment>
                 );
               })}
+
+              {/* 전체 학년 합계 통계 행 */}
+              {gradeFilter === 'all' && (
+                <>
+                  <tr className="bg-slate-100 dark:bg-slate-800 font-bold text-3xs text-slate-800 dark:text-slate-100 border-t-2 border-slate-300">
+                    <td colSpan={5} className="py-2 px-3 text-right sticky left-0 z-10 bg-slate-100 dark:bg-slate-800 border-r border-slate-300">
+                      전체 재적 합계 ({filteredStudents.length}명)
+                    </td>
+                    {(activeDays as DayConfig[]).map(day => (
+                      <td key={day.dateStr} className="py-1.5 px-1 border-l border-slate-300 text-center">
+                        {filteredStudents.length}
+                      </td>
+                    ))}
+                    <td colSpan={4} className="border-l border-slate-300"></td>
+                  </tr>
+                  <tr className="bg-emerald-50/70 dark:bg-emerald-950/40 font-black text-3xs text-emerald-800 dark:text-emerald-300 border-b-2 border-emerald-300">
+                    <td colSpan={5} className="py-2 px-3 text-right sticky left-0 z-10 bg-emerald-50 dark:bg-emerald-950 border-r border-slate-300">
+                      전체 총 출석(현원)
+                    </td>
+                    {(activeDays as DayConfig[]).map(day => {
+                      const totalDayAttended = filteredStudents.filter(st => {
+                        const k = getRecordKey(st.id, session as SessionType, day.dateStr);
+                        const s = records[k]?.status;
+                        return s === 'PRESENT' || s === 'LATE' || s === 'EARLY_LEAVE' || s === 'OFFICIAL_ABSENT';
+                      }).length;
+                      return (
+                        <td key={day.dateStr} className="py-1.5 px-1 border-l border-emerald-200 text-center">
+                          {totalDayAttended}
+                        </td>
+                      );
+                    })}
+                    <td colSpan={4} className="border-l border-emerald-200"></td>
+                  </tr>
+                </>
+              )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* 4. 출결 사유 입력 및 상세 확인 팝업 모달 */}
+      {detailModal.isOpen && detailModal.student && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+            <div className="flex justify-between items-center border-b pb-3 border-slate-100 dark:border-slate-800">
+              <div>
+                <h3 className="font-bold text-slate-900 dark:text-white text-sm">
+                  {detailModal.student.name} ({detailModal.student.grade}-{detailModal.student.classNum}-{detailModal.student.studentNum})
+                </h3>
+                <p className="text-3xs text-slate-400 font-mono mt-0.5">
+                  {detailModal.dateStr} ({session === 'morning' ? '아침' : '야자'})
+                </p>
+              </div>
+              <span className="text-xs font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
+                {STATUS_NAMES[detailModal.record?.status || 'NONE']}
+              </span>
+            </div>
+
+            {/* 체크인 시각 표시 */}
+            <div className="flex items-center gap-2 text-xs bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg text-slate-600 dark:text-slate-300">
+              <Clock className="w-4 h-4 text-indigo-500" />
+              <span>체크 시각: <b>{detailModal.record?.checkInTime || '기록 없음 (미체크)'}</b></span>
+            </div>
+
+            {/* 사유 입력 */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                <FileText className="w-3.5 h-3.5 text-indigo-500" />
+                출결 사유 (학원, 병원, 대회 등)
+              </label>
+              <textarea
+                rows={3}
+                placeholder="예: 7교시 후 수학 학원 이동, 병원 진료 후 18:00 입실"
+                value={detailModal.reasonText}
+                onChange={e => setDetailModal(prev => ({ ...prev, reasonText: e.target.value }))}
+                className="w-full p-2.5 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            {/* 버튼군 */}
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                onClick={() => setDetailModal(prev => ({ ...prev, isOpen: false }))}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200"
+              >
+                닫기
+              </button>
+              <button
+                onClick={() => handleSaveReason()}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-xs"
+              >
+                사유 저장
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
