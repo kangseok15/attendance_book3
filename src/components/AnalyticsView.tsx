@@ -5,7 +5,7 @@
 
 import React, { useMemo } from 'react';
 import { Student, SessionType, DayConfig, AttendanceRecord, UserRole } from '../types/attendance';
-import { getRecordKey, isStudentExcludedOnDate } from '../utils/attendanceHelpers';
+import { getRecordKey } from '../utils/attendanceHelpers';
 import { TrendingUp, Award } from 'lucide-react';
 
 interface AnalyticsViewProps {
@@ -26,6 +26,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 }) => {
   const activeStudents = useMemo(() => students.filter(s => s.active), [students]);
 
+  // 학년별 통계 (100% 초과 방지)
   const gradeStats = useMemo(() => {
     return [3, 2, 1].map(grade => {
       const gStudents = activeStudents.filter(s => s.grade === grade);
@@ -38,16 +39,14 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
       gStudents.forEach(st => {
         activeDays.forEach(day => {
-          if (!isStudentExcludedOnDate(st, session, day.dateStr)) {
-            totalSlots += 1;
-            const key = getRecordKey(st.id, session, day.dateStr);
-            const status = records[key]?.status;
-            if (status === 'PRESENT') presentCount += 1;
-            else if (status === 'LATE') lateCount += 1;
-            else if (status === 'EARLY_LEAVE') earlyLeaveCount += 1;
-            else if (status === 'OFFICIAL_ABSENT') officialAbsentCount += 1;
-            else if (status === 'ABSENT') absentCount += 1;
-          }
+          totalSlots += 1;
+          const key = getRecordKey(st.id, session, day.dateStr);
+          const status = records[key]?.status;
+          if (status === 'PRESENT') presentCount += 1;
+          else if (status === 'LATE') lateCount += 1;
+          else if (status === 'EARLY_LEAVE') earlyLeaveCount += 1;
+          else if (status === 'OFFICIAL_ABSENT') officialAbsentCount += 1;
+          else if (status === 'ABSENT') absentCount += 1;
         });
       });
 
@@ -65,6 +64,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     });
   }, [activeStudents, activeDays, session, records]);
 
+  // 학생별 랭킹 통계
   const studentRankings = useMemo(() => {
     return activeStudents.map(st => {
       let eligibleDays = 0;
@@ -76,16 +76,14 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       let absent = 0;
 
       activeDays.forEach(day => {
-        if (!isStudentExcludedOnDate(st, session, day.dateStr)) {
-          eligibleDays += 1;
-          const key = getRecordKey(st.id, session, day.dateStr);
-          const s = records[key]?.status;
-          if (s === 'PRESENT') { present += 1; attendedDays += 1; }
-          else if (s === 'LATE') { late += 1; attendedDays += 1; }
-          else if (s === 'EARLY_LEAVE') { early += 1; attendedDays += 1; }
-          else if (s === 'OFFICIAL_ABSENT') { official += 1; attendedDays += 1; }
-          else if (s === 'ABSENT') { absent += 1; }
-        }
+        eligibleDays += 1;
+        const key = getRecordKey(st.id, session, day.dateStr);
+        const s = records[key]?.status;
+        if (s === 'PRESENT') { present += 1; attendedDays += 1; }
+        else if (s === 'LATE') { late += 1; attendedDays += 1; }
+        else if (s === 'EARLY_LEAVE') { early += 1; attendedDays += 1; }
+        else if (s === 'OFFICIAL_ABSENT') { official += 1; attendedDays += 1; }
+        else if (s === 'ABSENT') { absent += 1; }
       });
 
       const effectivePresent = present + (late * 0.7) + (early * 0.7) + official;
@@ -100,7 +98,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         late,
         absent
       };
-    }).sort((a, b) => b.rate - a.rate || a.student.grade - b.student.grade);
+    }).sort((a, b) => b.rate - a.rate || a.student.grade - b.student.grade || a.student.classNum - b.student.classNum);
   }, [activeStudents, activeDays, session, records]);
 
   return (
@@ -142,7 +140,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         </div>
 
         <div className="overflow-x-auto max-h-[500px]">
-          <table className="w-left text-xs w-full">
+          <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-semibold sticky top-0 border-b border-slate-200 dark:border-slate-700">
               <tr>
                 <th className="py-3 px-4 text-center">순위</th>
