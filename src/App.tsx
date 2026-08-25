@@ -144,23 +144,20 @@ export default function App() {
   recordsRef.current = records;
 
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<'success' | 'syncing' | 'error'>('success');
   const [lastSyncText, setLastSyncText] = useState<string>('');
-  const isInitialRemoteLoadDone = useRef(false);
   const lastUserEditTimeRef = useRef<number>(0);
   const debounceTimerRef = useRef<any>(null);
+  const statusResetTimerRef = useRef<any>(null);
 
-  // 구글 시트로 변경 상태 전송
+  // 구글 시트로 백그라운드 전송 (화면 멈춤 방지)
   const triggerRemoteSync = (targetStudents?: Student[], targetRecords?: Record<string, AttendanceRecord>) => {
     const s = targetStudents || studentsRef.current;
     const r = targetRecords || recordsRef.current;
 
     setIsSyncing(true);
-    setSyncStatus('syncing');
 
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    if (statusResetTimerRef.current) clearTimeout(statusResetTimerRef.current);
 
     debounceTimerRef.current = setTimeout(async () => {
       try {
@@ -171,25 +168,26 @@ export default function App() {
         });
         const now = new Date();
         setLastSyncText(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`);
-        setSyncStatus('success');
       } catch (err) {
-        setSyncStatus('error');
+        console.warn('Sync warning:', err);
       } finally {
         setIsSyncing(false);
       }
-    }, 300);
+    }, 200);
+
+    // 1.5초 안전 타이머: 어떤 경우에도 1.5초 후에는 강제로 멈춤 상태 해제
+    statusResetTimerRef.current = setTimeout(() => {
+      setIsSyncing(false);
+    }, 1500);
   };
 
-  // 구글 시트 원격 데이터 불러오기 (비워진 상태도 그대로 화면에 반영)
+  // 구글 시트 원격 데이터 불러오기
   const refreshRemoteData = async (showLoading = true) => {
-    if (Date.now() - lastUserEditTimeRef.current < 8000 && !showLoading) {
+    if (Date.now() - lastUserEditTimeRef.current < 6000 && !showLoading) {
       return;
     }
 
-    if (showLoading) {
-      setIsSyncing(true);
-      setSyncStatus('syncing');
-    }
+    if (showLoading) setIsSyncing(true);
 
     try {
       const remote = await fetchFromGoogleSheets();
@@ -206,13 +204,11 @@ export default function App() {
         }
         const now = new Date();
         setLastSyncText(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`);
-        setSyncStatus('success');
       }
     } catch (e) {
-      setSyncStatus('error');
+      console.warn('Fetch error:', e);
     } finally {
-      if (showLoading) setIsSyncing(false);
-      isInitialRemoteLoadDone.current = true;
+      setIsSyncing(false);
     }
   };
 
@@ -308,7 +304,6 @@ export default function App() {
     }
   };
 
-  // 단일 출결 수정
   const handleUpdateRecord = (
     studentId: string,
     dateStr: string,
@@ -440,7 +435,6 @@ export default function App() {
     }));
   };
 
-  // ★ 날짜별 출결 비우기
   const handleClearDate = (dateStr: string, gradeFilter?: number, targetSession?: SessionType | 'both') => {
     lastUserEditTimeRef.current = Date.now();
     const sessionToClear = targetSession || session;
@@ -462,7 +456,6 @@ export default function App() {
     triggerRemoteSync(studentsRef.current, nextRecords);
   };
 
-  // ★ 월별/세션별 출결 비우기
   const handleClearMonthSession = (targetYear: number, targetMonth: number, targetSession: SessionType | 'both') => {
     lastUserEditTimeRef.current = Date.now();
     const monthPrefix = `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
@@ -485,7 +478,6 @@ export default function App() {
     triggerRemoteSync(studentsRef.current, nextRecords);
   };
 
-  // ★ 전체 출결 비우기
   const handleClearAll = () => {
     lastUserEditTimeRef.current = Date.now();
     recordsRef.current = {};
@@ -500,14 +492,8 @@ export default function App() {
       {/* Realtime Sync Status Indicator */}
       <div className="bg-slate-900 text-slate-300 text-3xs px-4 py-1 flex items-center justify-between border-b border-slate-800">
         <div className="flex items-center gap-2">
-          {syncStatus === 'syncing' && <span className="w-2 h-2 rounded-full bg-amber-400 animate-spin" />}
-          {syncStatus === 'success' && <span className="w-2 h-2 rounded-full bg-emerald-400" />}
-          {syncStatus === 'error' && <span className="w-2 h-2 rounded-full bg-rose-500" />}
-          <span>
-            {syncStatus === 'syncing' && '구글 시트에 안전 저장 중...'}
-            {syncStatus === 'success' && '구글 시트 실시간 연결됨 (데이터 보호)'}
-            {syncStatus === 'error' && '네트워크 지연 (로컬에 안전 보관됨)'}
-          </span>
+          <span className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-amber-400 animate-spin' : 'bg-emerald-400'}`} />
+          <span>{isSyncing ? '구글 스프레드시트 동기화 중...' : '구글 시트 실시간 연결됨'}</span>
           {lastSyncText && <span className="opacity-60">(마지막 동기화: {lastSyncText})</span>}
         </div>
         <button 
