@@ -18,18 +18,30 @@ import { fetchFromGoogleSheets, syncToGoogleSheets } from './utils/googleSync';
 import { MonthlyGridView } from './components/MonthlyGridView';
 import { AnalyticsView } from './components/AnalyticsView';
 import { 
-  Calendar, 
+  Calendar as CalendarIcon, 
+  CheckSquare, 
+  Users, 
   BarChart3, 
-  RefreshCw 
+  ShieldCheck, 
+  GraduationCap, 
+  User, 
+  FileSpreadsheet, 
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
+  Share2
 } from 'lucide-react';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabType>('monthly');
   const [session, setSession] = useState<SessionType>('morning');
   const [userRole, setUserRole] = useState<UserRole>('admin');
-  const [year] = useState<number>(2026);
-  const [month] = useState<number>(8);
+  const [year, setYear] = useState<number>(2026);
+  const [month, setMonth] = useState<number>(8);
+  const [isClearModalOpen, setIsClearModalOpen] = useState<boolean>(false);
 
+  // 로컬 백업 기반 안전 로딩
   const [students, setStudents] = useState<Student[]>(() => {
     const saved = localStorage.getItem('mirae_students_backup');
     return saved ? JSON.parse(saved) : [];
@@ -41,8 +53,8 @@ export function App() {
 
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSynced, setLastSynced] = useState<string>('');
-  const isInitialLoaded = useRef<boolean>(false);
 
+  // 8월 운영일 설정
   const activeDays: DayConfig[] = useMemo(() => {
     return [
       { dateStr: '2026-08-19', dayNum: 19, dayOfWeek: '수' },
@@ -57,7 +69,7 @@ export function App() {
     ];
   }, []);
 
-  // 서버 데이터와 태블릿 로컬 데이터 안전 병합(Merge) 로드 함수
+  // 구글 시트 안전 병합 동기화
   const loadData = async () => {
     setIsSyncing(true);
     const data = await fetchFromGoogleSheets();
@@ -74,12 +86,10 @@ export function App() {
         });
       }
       setLastSynced(new Date().toLocaleTimeString());
-      isInitialLoaded.current = true;
     }
     setIsSyncing(false);
   };
 
-  // 초기 1회 로드 및 태블릿 간 30초 주기 자동 동기화 (충돌 방지)
   useEffect(() => {
     loadData();
     const timer = setInterval(() => {
@@ -88,7 +98,6 @@ export function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // 출결 상태 업데이트 (로컬 즉시 저장 + 시트 전송)
   const handleUpdateRecord = async (
     studentId: string, 
     dateStr: string, 
@@ -149,11 +158,14 @@ export function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+    <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
+      
+      {/* 1. 최상단 메인 네비게이션 헤더 바 */}
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 sticky top-0 z-40 shadow-2xs">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           
-          <div className="flex items-center gap-3">
+          {/* 좌측: 로고 + 타이틀 */}
+          <div className="flex items-center gap-3 shrink-0">
             <div className="h-9 px-2.5 py-1 bg-[#801B2B] rounded-xl flex items-center justify-center shadow-xs">
               <svg viewBox="0 0 240 105" className="h-full w-auto text-white fill-current">
                 <text x="15" y="75" fontFamily="serif" fontSize="68" fontWeight="bold" fill="currentColor">崇</text>
@@ -162,65 +174,181 @@ export function App() {
               </svg>
             </div>
             <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight">
-              숭신고 미래인재반 출석부
+              숭신고등학교 미래인재반 출석부
             </h1>
           </div>
 
-          <nav className="hidden md:flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold">
+          {/* 중앙: 4개 메뉴 탭 (월간 출석부, 일별 빠른 체크, 학생 명단, 통계 및 분석) */}
+          <nav className="hidden xl:flex items-center gap-1.5 bg-slate-100/80 dark:bg-slate-800/80 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-700 text-xs font-bold">
             <button
               onClick={() => setActiveTab('monthly')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg transition-all ${
-                activeTab === 'monthly' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
+                activeTab === 'monthly' ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
-              <Calendar className="w-4 h-4" />
+              <CalendarIcon className="w-4 h-4 text-indigo-500" />
               월간 출석부
             </button>
             <button
-              onClick={() => setActiveTab('analytics')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg transition-all ${
-                activeTab === 'analytics' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              onClick={() => setActiveTab('quick' as any)}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
+                activeTab === ('quick' as any) ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
-              <BarChart3 className="w-4 h-4" />
+              <CheckSquare className="w-4 h-4 text-slate-400" />
+              일별 빠른 체크
+            </button>
+            <button
+              onClick={() => setActiveTab('students' as any)}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
+                activeTab === ('students' as any) ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <Users className="w-4 h-4 text-slate-400" />
+              학생 명단 ({students.length || 45}명)
+            </button>
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
+                activeTab === 'analytics' ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4 text-slate-400" />
               통계 및 분석
             </button>
           </nav>
 
-          <div className="flex items-center gap-2.5">
-            <button
-              onClick={loadData}
-              title="구글 시트 최신 데이터 수동 동기화"
-              className="flex items-center gap-1.5 text-3xs text-slate-500 font-mono bg-slate-100 dark:bg-slate-800 px-2.5 py-1.5 rounded-lg hover:bg-slate-200 cursor-pointer"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-indigo-500' : ''}`} />
-              <span className="hidden sm:inline">{lastSynced ? `동기화: ${lastSynced}` : '동기화'}</span>
-            </button>
-
-            <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-3xs font-bold">
+          {/* 우측: 권한 스위치 + 스프레드시트 버튼 + 동기화 아이콘 */}
+          <div className="flex items-center gap-2">
+            {/* 권한 스위치 (관리자 / 담임 교사 / 학생) */}
+            <div className="inline-flex bg-slate-100/90 dark:bg-slate-800/90 p-1 rounded-xl text-3xs font-bold border border-slate-200/50">
               <button
                 onClick={() => setUserRole('admin')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-all ${
                   userRole === 'admin' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400'
                 }`}
               >
+                <ShieldCheck className="w-3 h-3" />
                 관리자
               </button>
               <button
+                onClick={() => setUserRole('teacher')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-all ${
+                  userRole === 'teacher' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400'
+                }`}
+              >
+                <GraduationCap className="w-3 h-3" />
+                담임 교사
+              </button>
+              <button
                 onClick={() => setUserRole('student')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-all ${
                   userRole === 'student' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400'
                 }`}
               >
+                <User className="w-3 h-3" />
                 학생
               </button>
             </div>
+
+            {/* 초록색 구글 스프레드시트 버튼 */}
+            <a
+              href="https://docs.google.com/spreadsheets"
+              target="_blank"
+              rel="noreferrer"
+              className="hidden sm:flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-3xs font-bold transition-all shadow-xs"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              스프레드시트
+            </a>
+
+            {/* 새로고침 & 공유 아이콘 */}
+            <button
+              onClick={loadData}
+              title={`구글 시트 동기화 (최근: ${lastSynced || '연결 대기'})`}
+              className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200 transition-colors"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-indigo-500' : ''}`} />
+            </button>
           </div>
 
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
+      {/* 2. 2열 서브 컨트롤 바 (세션 선택 + 월 퀵 이동 + 날짜 선택기 + 출결 비우기) */}
+      <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xs border-b border-slate-200/80 dark:border-slate-800 px-4 sm:px-6 py-2.5">
+        <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-3">
+          
+          {/* 좌측: [아침 자율학습] [야간 자율학습] */}
+          <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold">
+            <button
+              onClick={() => setSession('morning')}
+              className={`px-3.5 py-1.5 rounded-lg transition-all ${
+                session === 'morning' ? 'bg-white dark:bg-slate-900 text-amber-600 shadow-xs font-extrabold' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              아침 자율학습
+            </button>
+            <button
+              onClick={() => setSession('night')}
+              className={`px-3.5 py-1.5 rounded-lg transition-all ${
+                session === 'night' ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-xs font-extrabold' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              야간 자율학습
+            </button>
+          </div>
+
+          {/* 우측: 8월~12월 탭 + 달력 선택기 + 출결 비우기 */}
+          <div className="flex flex-wrap items-center gap-3">
+            
+            {/* 월 퀵 선택 알약 버튼 */}
+            <div className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-3xs font-bold">
+              {[8, 9, 10, 11, 12].map(m => (
+                <button
+                  key={m}
+                  onClick={() => setMonth(m)}
+                  className={`px-2.5 py-1 rounded-lg transition-all ${
+                    month === m ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  {m}월
+                </button>
+              ))}
+            </div>
+
+            {/* 달력 날짜 피커 박스 */}
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+              <button onClick={() => setMonth(prev => Math.max(1, prev - 1))} className="p-1 hover:text-indigo-600">
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <div className="flex items-center gap-1.5 px-2 font-mono">
+                <CalendarIcon className="w-3.5 h-3.5 text-indigo-500" />
+                <span>{year}년 {month}월</span>
+              </div>
+              <button onClick={() => setMonth(prev => Math.min(12, prev + 1))} className="p-1 hover:text-indigo-600">
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* 빨간색 출결 비우기 버튼 */}
+            {userRole === 'admin' && (
+              <button
+                onClick={() => setIsClearModalOpen(true)}
+                className="flex items-center gap-1 px-3 py-1.5 bg-rose-50 dark:bg-rose-950/40 text-rose-600 border border-rose-200 dark:border-rose-900/60 rounded-xl text-xs font-bold hover:bg-rose-100 transition-colors shadow-2xs"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                출결 비우기
+              </button>
+            )}
+
+          </div>
+
+        </div>
+      </div>
+
+      {/* 3. 메인 콘텐츠 뷰 */}
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-5 flex-1 w-full space-y-6">
         {activeTab === 'monthly' && (
           <MonthlyGridView
             students={students}
@@ -233,6 +361,7 @@ export function App() {
             onFillDayAbsent={handleFillDayAbsent}
             onUpdateStudents={handleUpdateStudents}
             onSessionChange={setSession}
+            onOpenClearModal={() => setIsClearModalOpen(true)}
             userRole={userRole}
           />
         )}
@@ -249,6 +378,47 @@ export function App() {
           />
         )}
       </main>
+
+      {/* 4. 출결 비우기 확인 모달 */}
+      {isClearModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-2xs p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+            <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
+              <RotateCcw className="w-5 h-5 text-rose-600" />
+              출결 데이터 비우기
+            </h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              선택한 세션({session === 'morning' ? '아침' : '야간'})의 출결 기록을 초기화하시겠습니까? (이 작업은 복구할 수 없습니다)
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setIsClearModalOpen(false)}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => {
+                  const nextRecords = { ...records };
+                  Object.keys(nextRecords).forEach(k => {
+                    if (k.includes(`_${session}_`)) {
+                      delete nextRecords[k];
+                    }
+                  });
+                  setRecords(nextRecords);
+                  localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
+                  syncToGoogleSheets({ records: nextRecords });
+                  setIsClearModalOpen(false);
+                }}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600 text-white hover:bg-rose-700"
+              >
+                비우기 실행
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
