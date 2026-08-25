@@ -15,7 +15,6 @@ import {
 import { 
   getRecordKey,
   isStudentExcluded,
-  calculateStudentMonthlyStats,
   isPastDate,
   getTodayDateStr,
   isStudentAttendanceLocked
@@ -33,35 +32,18 @@ const STATUS_ICONS: Record<AttendanceStatus, string> = {
   NONE: ''
 };
 
-interface MonthlyGridViewProps {
-  students: Student[];
-  session: SessionType;
-  year?: number;
-  month?: number;
-  activeDays: DayConfig[];
-  records: Record<string, AttendanceRecord>;
-  onUpdateRecord: (studentId: string, dateStr: string, status: AttendanceStatus, reason?: string) => void;
-  onBatchUpdateDay?: (dateStr: string, status: AttendanceStatus, gradeFilter?: number) => void;
-  onFillDayAbsent?: (dateStr: string, gradeFilter?: number) => void;
-  onUpdateStudents?: (students: Student[]) => void;
-  onSessionChange?: (session: SessionType) => void;
-  onClearDate?: (dateStr: string, gradeFilter?: number, targetSession?: SessionType | 'both') => void;
-  onOpenClearModal?: () => void;
-  userRole?: UserRole | string;
-  lockPastDates?: boolean;
-  onToggleLockPastDates?: () => void;
-}
+export const MonthlyGridView: React.FC<any> = (props) => {
+  const {
+    students = [],
+    session = 'morning',
+    activeDays = [],
+    records = {},
+    onUpdateRecord,
+    onOpenClearModal,
+    userRole = 'teacher',
+    lockPastDates = false,
+  } = props;
 
-export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
-  students,
-  session,
-  activeDays,
-  records,
-  onUpdateRecord,
-  onOpenClearModal,
-  userRole = 'teacher',
-  lockPastDates = false,
-}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [gradeFilter, setGradeFilter] = useState<number | 'all'>('all');
   const todayStr = getTodayDateStr();
@@ -78,10 +60,12 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
     const currentStatus = records[key]?.status || 'NONE';
     const currentIndex = STATUS_CYCLE.indexOf(currentStatus);
     const nextStatus = STATUS_CYCLE[(currentIndex + 1) % STATUS_CYCLE.length];
-    onUpdateRecord(student.id, dateStr, nextStatus);
+    if (onUpdateRecord) {
+      onUpdateRecord(student.id, dateStr, nextStatus);
+    }
   };
 
-  const filteredStudents = students.filter(student => {
+  const filteredStudents = (students as Student[]).filter(student => {
     const matchesSearch = student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       `${student.grade}${student.classNum}${student.studentNum}`.includes(searchTerm);
     const matchesGrade = gradeFilter === 'all' || student.grade === gradeFilter;
@@ -90,8 +74,42 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
 
   const grades = gradeFilter === 'all' ? [3, 2, 1] : [gradeFilter];
 
+  // 학생별 월간 통계 자체 계산
+  const getStudentStats = (student: Student) => {
+    let eligibleDays = 0;
+    let present = 0;
+    let late = 0;
+    let early = 0;
+    let official = 0;
+    let absent = 0;
+
+    (activeDays as DayConfig[]).forEach(day => {
+      if (!isStudentExcluded(student, session, day.dateStr)) {
+        eligibleDays += 1;
+        const key = getRecordKey(student.id, session, day.dateStr);
+        const status = records[key]?.status;
+        if (status === 'PRESENT') present += 1;
+        else if (status === 'LATE') late += 1;
+        else if (status === 'EARLY_LEAVE') early += 1;
+        else if (status === 'OFFICIAL_ABSENT') official += 1;
+        else if (status === 'ABSENT') absent += 1;
+      }
+    });
+
+    const attendedDays = present + late + early + official;
+    const effectivePresent = present + (late * 0.7) + (early * 0.7) + official;
+    const rate = eligibleDays > 0 ? Math.min(100, Math.round((effectivePresent / eligibleDays) * 100)) : 0;
+
+    return {
+      attendedDays: Math.min(attendedDays, eligibleDays),
+      absentCount: absent,
+      rate
+    };
+  };
+
   return (
     <div className="space-y-4">
+      {/* 상단 툴바 */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <button
@@ -147,6 +165,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
         </div>
       </div>
 
+      {/* 출석부 테이블 */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-center border-collapse text-xs">
@@ -157,7 +176,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
                 <th className="py-2.5 px-2 w-10">반</th>
                 <th className="py-2.5 px-2 w-10">번호</th>
                 <th className="py-2.5 px-3 w-20">이름</th>
-                {activeDays.map(day => (
+                {(activeDays as DayConfig[]).map(day => (
                   <th key={day.dateStr} className="py-2 px-1 min-w-[34px] border-l border-slate-100 dark:border-slate-800">
                     <div className="font-bold">{day.dayNum}</div>
                     <div className="text-3xs opacity-75">{day.dayOfWeek}</div>
@@ -176,7 +195,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
                 return (
                   <React.Fragment key={grade}>
                     {gradeStudents.map((student, idx) => {
-                      const stats = calculateStudentMonthlyStats(student, session, activeDays, records);
+                      const stats = getStudentStats(student);
                       return (
                         <tr key={student.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                           <td className="py-2 px-1 text-slate-400 font-mono text-3xs">{idx + 1}</td>
@@ -185,11 +204,11 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
                           <td className="py-2 px-1">{student.studentNum}</td>
                           <td className="py-2 px-2 font-bold text-slate-900 dark:text-white text-left whitespace-nowrap">{student.name}</td>
                           
-                          {activeDays.map(day => {
-                            const key = getRecordKey(student.id, session, day.dateStr);
+                          {(activeDays as DayConfig[]).map(day => {
+                            const key = getRecordKey(student.id, session as SessionType, day.dateStr);
                             const rec = records[key];
                             const status = rec?.status || 'NONE';
-                            const isExcluded = isStudentExcluded(student, session, day.dateStr);
+                            const isExcluded = isStudentExcluded(student, session as SessionType, day.dateStr);
                             const isLocked = (userRole === 'student' && isStudentAttendanceLocked(session, day.dateStr).isLocked) ||
                                              (lockPastDates && isPastDate(day.dateStr, todayStr));
 
