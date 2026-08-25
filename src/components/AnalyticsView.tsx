@@ -4,27 +4,21 @@
  */
 
 import React, { useMemo } from 'react';
-import { Student, SessionType, DayConfig, AttendanceRecord, UserRole } from '../types/attendance';
+import { Student, SessionType, DayConfig, AttendanceRecord } from '../types/attendance';
 import { getRecordKey } from '../utils/attendanceHelpers';
 import { TrendingUp, Award } from 'lucide-react';
 
-interface AnalyticsViewProps {
-  students: Student[];
-  session: SessionType;
-  year?: number;
-  month?: number;
-  activeDays: DayConfig[];
-  records: Record<string, AttendanceRecord>;
-  userRole?: UserRole | string;
-}
+export const AnalyticsView: React.FC<any> = (props) => {
+  const {
+    students = [],
+    session = 'morning',
+    activeDays = [],
+    records = {},
+  } = props;
 
-export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
-  students,
-  session,
-  activeDays,
-  records,
-}) => {
-  const activeStudents = useMemo(() => students.filter(s => s.active), [students]);
+  const activeStudents: Student[] = useMemo(() => {
+    return (students as Student[]).filter(s => s.active);
+  }, [students]);
 
   // 학년별 통계 (100% 초과 방지)
   const gradeStats = useMemo(() => {
@@ -38,10 +32,10 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       let absentCount = 0;
 
       gStudents.forEach(st => {
-        activeDays.forEach(day => {
+        (activeDays as DayConfig[]).forEach(day => {
           totalSlots += 1;
-          const key = getRecordKey(st.id, session, day.dateStr);
-          const status = records[key]?.status;
+          const key = getRecordKey(st.id, session as SessionType, day.dateStr);
+          const status = (records as Record<string, AttendanceRecord>)[key]?.status;
           if (status === 'PRESENT') presentCount += 1;
           else if (status === 'LATE') lateCount += 1;
           else if (status === 'EARLY_LEAVE') earlyLeaveCount += 1;
@@ -64,7 +58,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     });
   }, [activeStudents, activeDays, session, records]);
 
-  // 학생별 랭킹 통계
+  // 학생별 성실도 통계
   const studentRankings = useMemo(() => {
     return activeStudents.map(st => {
       let eligibleDays = 0;
@@ -75,10 +69,10 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       let official = 0;
       let absent = 0;
 
-      activeDays.forEach(day => {
+      (activeDays as DayConfig[]).forEach(day => {
         eligibleDays += 1;
-        const key = getRecordKey(st.id, session, day.dateStr);
-        const s = records[key]?.status;
+        const key = getRecordKey(st.id, session as SessionType, day.dateStr);
+        const s = (records as Record<string, AttendanceRecord>)[key]?.status;
         if (s === 'PRESENT') { present += 1; attendedDays += 1; }
         else if (s === 'LATE') { late += 1; attendedDays += 1; }
         else if (s === 'EARLY_LEAVE') { early += 1; attendedDays += 1; }
@@ -103,6 +97,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* 학년별 현황 카드 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {gradeStats.map(stat => (
           <div key={stat.grade} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
@@ -130,6 +125,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         ))}
       </div>
 
+      {/* 학생별 성실도 랭킹 */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
