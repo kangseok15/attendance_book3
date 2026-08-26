@@ -5,53 +5,55 @@
 
 import { Student, AttendanceRecord } from '../types/attendance';
 
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzOBmScvTbJAks8HiDtTlJC3sQP43eTAy3QF1S8t32iN7zBYDZQ9NLd0e7UwgHxEguU/exec';
+// 구글 앱스 스크립트 웹 앱 배포 URL
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyv01vQj8821z9V_cRrvx1X-fWqQ2Nl1Q73E_5m9lQ8Qv6xQ3c0E_qC8U/exec';
 
-export interface SyncPayload {
+export interface SheetData {
   students?: Student[];
   records?: Record<string, AttendanceRecord>;
-  updatedAt?: string;
+  recordKey?: string;
+  record?: AttendanceRecord;
 }
 
-export async function fetchFromGoogleSheets(): Promise<SyncPayload | null> {
-  if (!GOOGLE_SCRIPT_URL) return null;
+// 구글 시트에서 최신 전체 데이터 가져오기 (GET)
+export async function fetchFromGoogleSheets(): Promise<{ students: Student[]; records: Record<string, AttendanceRecord> } | null> {
   try {
-    const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=read&_nocache=${Date.now()}`, {
-      method: 'GET',
-      redirect: 'follow',
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    return data;
+    const res = await fetch(`${SCRIPT_URL}?t=${Date.now()}`);
+    if (!res.ok) return null;
+    const json = await res.json();
+    return {
+      students: json.students || [],
+      records: json.records || {}
+    };
   } catch (err) {
-    console.warn('Google Sheets Fetch Fail:', err);
+    console.error('구글 시트 로드 실패:', err);
     return null;
   }
 }
 
-export async function syncToGoogleSheets(payload: SyncPayload): Promise<boolean> {
-  if (!GOOGLE_SCRIPT_URL) return false;
-
-  // [핵심 안전장치 1] records 객체가 비어있거나 데이터가 없으면 구글 시트 덮어쓰기 전송을 즉시 차단
-  if (payload.records && Object.keys(payload.records).length === 0) {
-    console.warn('빈 데이터 덮어쓰기 방지: 전송이 취소되었습니다.');
+// 구글 시트로 데이터 저장하기 (POST) - 단일 기록 전송 및 전체 백업 지원
+export async function syncToGoogleSheets(data: SheetData): Promise<boolean> {
+  // 빈 데이터 전송 원천 차단
+  if (!data.students && !data.records && !data.record) {
     return false;
   }
 
   try {
-    const bodyStr = JSON.stringify({
-      ...payload,
-      updatedAt: payload.updatedAt || new Date().toISOString(),
-    });
-    await fetch(GOOGLE_SCRIPT_URL, {
+    const res = await fetch(SCRIPT_URL, {
       method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: bodyStr,
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify({
+        ...data,
+        updatedAt: new Date().toISOString()
+      }),
+      keepalive: true, // 모바일 화면 전환이나 백그라운드에서도 전송 보장
     });
-    return true;
+
+    return res.ok;
   } catch (err) {
-    console.warn('Google Sheets Sync Fail:', err);
+    console.error('구글 시트 전송 오류:', err);
     return false;
   }
 }
