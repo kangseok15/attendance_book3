@@ -58,6 +58,7 @@ export function App() {
   
   // 모달 상태
   const [isClearModalOpen, setIsClearModalOpen] = useState<boolean>(false);
+  const [clearTargetDate, setClearTargetDate] = useState<string>('ALL'); // 'ALL' 또는 특정 'YYYY-MM-DD'
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [passwordInput, setPasswordInput] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
@@ -128,7 +129,6 @@ export function App() {
       setIsAuthModalOpen(true);
     } else {
       setUserRole(targetRole);
-      // 브라우저 주소창 파라미터 동기화
       const url = new URL(window.location.href);
       if (targetRole === 'student') {
         url.searchParams.delete('role');
@@ -213,6 +213,30 @@ export function App() {
     syncToGoogleSheets({ students: updatedStudents });
   };
 
+  // 출결 데이터 선택 삭제 실행 (특정 날짜 또는 전체)
+  const handleExecuteClear = () => {
+    setRecords(prev => {
+      const nextRecords = { ...prev };
+      Object.keys(nextRecords).forEach(k => {
+        if (clearTargetDate === 'ALL') {
+          // 해당 세션의 모든 날짜 초기화
+          if (k.includes(`_${session}_`)) {
+            delete nextRecords[k];
+          }
+        } else {
+          // 선택한 특정 날짜의 세션 기록만 초기화
+          if (k.includes(`_${session}_${clearTargetDate}`)) {
+            delete nextRecords[k];
+          }
+        }
+      });
+      localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
+      syncToGoogleSheets({ records: nextRecords });
+      return nextRecords;
+    });
+    setIsClearModalOpen(false);
+  };
+
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
       
@@ -220,7 +244,6 @@ export function App() {
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 sticky top-0 z-40 shadow-2xs">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           
-          {/* 좌측: 로고 + 타이틀 */}
           <div className="flex items-center gap-3 shrink-0">
             <div className="h-9 px-2.5 py-1 bg-[#801B2B] rounded-xl flex items-center justify-center shadow-xs">
               <svg viewBox="0 0 240 105" className="h-full w-auto text-white fill-current">
@@ -234,7 +257,6 @@ export function App() {
             </h1>
           </div>
 
-          {/* 중앙: 4개 메뉴 탭 */}
           <nav className="hidden xl:flex items-center gap-1.5 bg-slate-100/80 dark:bg-slate-800/80 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-700 text-xs font-bold">
             <button
               onClick={() => setActiveTab('monthly')}
@@ -274,7 +296,6 @@ export function App() {
             </button>
           </nav>
 
-          {/* 우측: 권한 스위치 + 스프레드시트 버튼 + 동기화 아이콘 */}
           <div className="flex items-center gap-2">
             <div className="inline-flex bg-slate-100/90 dark:bg-slate-800/90 p-1 rounded-xl text-3xs font-bold border border-slate-200/50">
               <button
@@ -381,7 +402,10 @@ export function App() {
 
             {userRole === 'admin' && (
               <button
-                onClick={() => setIsClearModalOpen(true)}
+                onClick={() => {
+                  setClearTargetDate('ALL');
+                  setIsClearModalOpen(true);
+                }}
                 className="flex items-center gap-1 px-3 py-1.5 bg-rose-50 dark:bg-rose-950/40 text-rose-600 border border-rose-200 dark:border-rose-900/60 rounded-xl text-xs font-bold hover:bg-rose-100 transition-colors shadow-2xs"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
@@ -407,7 +431,10 @@ export function App() {
             onFillDayAbsent={handleFillDayAbsent}
             onUpdateStudents={handleUpdateStudents}
             onSessionChange={setSession}
-            onOpenClearModal={() => setIsClearModalOpen(true)}
+            onOpenClearModal={() => {
+              setClearTargetDate('ALL');
+              setIsClearModalOpen(true);
+            }}
             userRole={userRole}
           />
         )}
@@ -483,18 +510,54 @@ export function App() {
         </div>
       )}
 
-      {/* 5. 출결 비우기 확인 모달 */}
+      {/* 5. 출결 비우기 모달 (전체 or 특정 날짜 선택 기능 복원) */}
       {isClearModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-2xs p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
-            <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
-              <RotateCcw className="w-5 h-5 text-rose-600" />
-              출결 데이터 비우기
-            </h3>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              선택한 세션({session === 'morning' ? '아침' : '야간'})의 출결 기록을 초기화하시겠습니까? (이 작업은 복구할 수 없습니다)
-            </p>
-            <div className="flex justify-end gap-2 pt-2">
+            
+            <div className="flex items-center justify-between border-b pb-3 border-slate-100 dark:border-slate-800">
+              <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
+                <RotateCcw className="w-5 h-5 text-rose-600" />
+                출결 데이터 비우기
+              </h3>
+              <button 
+                onClick={() => setIsClearModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  초기화할 범위 선택 ({session === 'morning' ? '아침 자율학습' : '야간 자율학습'})
+                </label>
+                <select
+                  value={clearTargetDate}
+                  onChange={e => setClearTargetDate(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 font-medium text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-rose-500"
+                >
+                  <option value="ALL">📌 {month}월 전체 일자 일괄 비우기</option>
+                  {activeDays.map(day => (
+                    <option key={day.dateStr} value={day.dateStr}>
+                      📅 {day.dayNum}일({day.dayOfWeek}) 기록만 비우기
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="bg-rose-50 dark:bg-rose-950/40 p-3 rounded-xl border border-rose-200 dark:border-rose-900/50">
+                <p className="text-3xs text-rose-700 dark:text-rose-300 leading-relaxed font-medium">
+                  {clearTargetDate === 'ALL'
+                    ? `⚠️ ${month}월 ${session === 'morning' ? '아침' : '야간'} 세션의 모든 출결 기록이 삭제됩니다.`
+                    : `⚠️ 선택한 날짜(${clearTargetDate})의 ${session === 'morning' ? '아침' : '야간'} 출결 기록만 삭제됩니다.`}
+                  <br />(이 작업은 복구할 수 없습니다.)
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
               <button
                 onClick={() => setIsClearModalOpen(false)}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -502,23 +565,13 @@ export function App() {
                 취소
               </button>
               <button
-                onClick={() => {
-                  const nextRecords = { ...records };
-                  Object.keys(nextRecords).forEach(k => {
-                    if (k.includes(`_${session}_`)) {
-                      delete nextRecords[k];
-                    }
-                  });
-                  setRecords(nextRecords);
-                  localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
-                  syncToGoogleSheets({ records: nextRecords });
-                  setIsClearModalOpen(false);
-                }}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600 text-white hover:bg-rose-700"
+                onClick={handleExecuteClear}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 shadow-xs"
               >
                 비우기 실행
               </button>
             </div>
+
           </div>
         </div>
       )}
