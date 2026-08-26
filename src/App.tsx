@@ -40,10 +40,8 @@ import {
   Search
 } from 'lucide-react';
 
-// 관리자 접근 비밀번호
 const ADMIN_PASSWORD = '4706';
 
-// App 내부 전용 출결 기호 및 라벨 매핑 (외부 import 에러 방지)
 const QUICK_STATUS_ICONS: Record<AttendanceStatus, string> = {
   PRESENT: '○',
   LATE: '△',
@@ -62,7 +60,6 @@ const QUICK_STATUS_LABELS: Record<AttendanceStatus, string> = {
   NONE: '미체크'
 };
 
-// URL 파라미터(?role=teacher 등)에서 초기 역할 감지 함수
 const getInitialRoleFromURL = (): UserRole => {
   if (typeof window !== 'undefined') {
     const params = new URLSearchParams(window.location.search);
@@ -71,7 +68,7 @@ const getInitialRoleFromURL = (): UserRole => {
     if (roleParam === 'admin') return 'admin';
     if (roleParam === 'student') return 'student';
   }
-  return 'student'; // 기본 접속 권한: 학생
+  return 'student';
 };
 
 export function App() {
@@ -82,18 +79,15 @@ export function App() {
   const [month, setMonth] = useState<number>(8);
   const [selectedDateStr, setSelectedDateStr] = useState<string>(getTodayDateStr());
   
-  // 검색 및 필터 상태
   const [studentSearch, setStudentSearch] = useState<string>('');
   const [quickGradeFilter, setQuickGradeFilter] = useState<number | 'all'>('all');
 
-  // 모달 상태
   const [isClearModalOpen, setIsClearModalOpen] = useState<boolean>(false);
   const [clearTargetDate, setClearTargetDate] = useState<string>('ALL');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [passwordInput, setPasswordInput] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
 
-  // 로컬 백업 기반 안전 로딩
   const [students, setStudents] = useState<Student[]>(() => {
     const saved = localStorage.getItem('mirae_students_backup');
     return saved ? JSON.parse(saved) : [];
@@ -106,7 +100,6 @@ export function App() {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSynced, setLastSynced] = useState<string>('');
 
-  // 8월 운영일 설정
   const activeDays: DayConfig[] = useMemo(() => {
     return [
       { dateStr: '2026-08-19', dayNum: 19, dayOfWeek: '수' },
@@ -121,7 +114,6 @@ export function App() {
     ];
   }, []);
 
-  // 구글 시트 안전 병합 동기화 로드 함수
   const loadData = async () => {
     setIsSyncing(true);
     const data = await fetchFromGoogleSheets();
@@ -130,7 +122,7 @@ export function App() {
         setStudents(data.students);
         localStorage.setItem('mirae_students_backup', JSON.stringify(data.students));
       }
-      if (data.records && Object.keys(data.records).length > 0) {
+      if (data.records) {
         setRecords(prev => {
           const merged = { ...prev, ...data.records };
           localStorage.setItem('mirae_records_backup', JSON.stringify(merged));
@@ -146,11 +138,10 @@ export function App() {
     loadData();
     const timer = setInterval(() => {
       loadData();
-    }, 30000);
+    }, 15000); // 15초 주기로 단축하여 실시간성 대폭 강화
     return () => clearInterval(timer);
   }, []);
 
-  // 역할 전환 핸들러 (관리자 전환 시 비밀번호 검증 + URL 파라미터 동기화)
   const handleRoleChange = (targetRole: UserRole) => {
     if (targetRole === 'admin') {
       if (userRole === 'admin') return;
@@ -184,6 +175,7 @@ export function App() {
     }
   };
 
+  // 1명 터치 시 1건만 즉시 가볍게 전송 (모바일 씹힘 현상 원천 차단)
   const handleUpdateRecord = async (
     studentId: string, 
     dateStr: string, 
@@ -194,22 +186,30 @@ export function App() {
     const key = `${studentId}_${session}_${dateStr}`;
     const nowTime = checkInTime || `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`;
     
+    const singleRecord: AttendanceRecord = {
+      studentId,
+      session,
+      dateStr,
+      status,
+      reason: reason !== undefined ? reason : records[key]?.reason,
+      checkInTime: records[key]?.checkInTime || nowTime,
+      updatedAt: new Date().toISOString(),
+    };
+
     setRecords(prev => {
       const nextRecords = {
         ...prev,
-        [key]: {
-          studentId,
-          session,
-          dateStr,
-          status,
-          reason: reason !== undefined ? reason : prev[key]?.reason,
-          checkInTime: prev[key]?.checkInTime || nowTime,
-          updatedAt: new Date().toISOString(),
-        }
+        [key]: singleRecord
       };
       localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
-      syncToGoogleSheets({ records: nextRecords });
       return nextRecords;
+    });
+
+    // 전체 덩어리가 아닌 방금 수정한 1건 + 백업 전체를 함께 전달
+    syncToGoogleSheets({ 
+      recordKey: key, 
+      record: singleRecord,
+      records: { ...records, [key]: singleRecord } 
     });
   };
 
@@ -273,11 +273,10 @@ export function App() {
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
       
-      {/* 1. 최상단 메인 네비게이션 헤더 바 */}
+      {/* 1. 최상단 네비게이션 바 */}
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 sticky top-0 z-40 shadow-2xs">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           
-          {/* 좌측: 숭신 로고 + 타이틀 */}
           <div className="flex items-center gap-3 shrink-0">
             <div className="h-9 px-2.5 py-1 bg-[#801B2B] rounded-xl flex items-center justify-center shadow-xs">
               <svg viewBox="0 0 240 105" className="h-full w-auto text-white fill-current">
@@ -291,7 +290,6 @@ export function App() {
             </h1>
           </div>
 
-          {/* 중앙: 4개 메뉴 탭 */}
           <nav className="hidden xl:flex items-center gap-1.5 bg-slate-100/80 dark:bg-slate-800/80 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-700 text-xs font-bold">
             <button
               onClick={() => setActiveTab('monthly')}
@@ -331,7 +329,6 @@ export function App() {
             </button>
           </nav>
 
-          {/* 우측: 권한 스위치 + 스프레드시트 버튼 + 동기화 아이콘 */}
           <div className="flex items-center gap-2">
             <div className="inline-flex bg-slate-100/90 dark:bg-slate-800/90 p-1 rounded-xl text-3xs font-bold border border-slate-200/50">
               <button
@@ -385,7 +382,7 @@ export function App() {
         </div>
       </header>
 
-      {/* 2. 2열 서브 컨트롤 바 */}
+      {/* 2. 서브 컨트롤 바 */}
       <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xs border-b border-slate-200/80 dark:border-slate-800 px-4 sm:px-6 py-2.5">
         <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-3">
           
