@@ -17,6 +17,8 @@ import { getTodayDateStr } from './utils/attendanceHelpers';
 import { fetchFromGoogleSheets, syncToGoogleSheets } from './utils/googleSync';
 import { MonthlyGridView } from './components/MonthlyGridView';
 import { AnalyticsView } from './components/AnalyticsView';
+import { QuickCheckView } from './components/QuickCheckView';
+import { StudentListView } from './components/StudentListView';
 import { 
   Calendar as CalendarIcon, 
   CheckSquare, 
@@ -55,10 +57,11 @@ export function App() {
   const [userRole, setUserRole] = useState<UserRole>(getInitialRoleFromURL);
   const [year, setYear] = useState<number>(2026);
   const [month, setMonth] = useState<number>(8);
+  const [selectedDateStr, setSelectedDateStr] = useState<string>(getTodayDateStr());
   
   // 모달 상태
   const [isClearModalOpen, setIsClearModalOpen] = useState<boolean>(false);
-  const [clearTargetDate, setClearTargetDate] = useState<string>('ALL'); // 'ALL' 또는 특정 'YYYY-MM-DD'
+  const [clearTargetDate, setClearTargetDate] = useState<string>('ALL');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [passwordInput, setPasswordInput] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
@@ -120,7 +123,7 @@ export function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // 역할 전환 핸들러 (관리자 전환 시 비밀번호 검증 + URL 파라미터 동기화)
+  // 역할 전환 핸들러
   const handleRoleChange = (targetRole: UserRole) => {
     if (targetRole === 'admin') {
       if (userRole === 'admin') return;
@@ -213,18 +216,15 @@ export function App() {
     syncToGoogleSheets({ students: updatedStudents });
   };
 
-  // 출결 데이터 선택 삭제 실행 (특정 날짜 또는 전체)
   const handleExecuteClear = () => {
     setRecords(prev => {
       const nextRecords = { ...prev };
       Object.keys(nextRecords).forEach(k => {
         if (clearTargetDate === 'ALL') {
-          // 해당 세션의 모든 날짜 초기화
           if (k.includes(`_${session}_`)) {
             delete nextRecords[k];
           }
         } else {
-          // 선택한 특정 날짜의 세션 기록만 초기화
           if (k.includes(`_${session}_${clearTargetDate}`)) {
             delete nextRecords[k];
           }
@@ -244,6 +244,7 @@ export function App() {
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 sticky top-0 z-40 shadow-2xs">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           
+          {/* 좌측: 로고 + 타이틀 */}
           <div className="flex items-center gap-3 shrink-0">
             <div className="h-9 px-2.5 py-1 bg-[#801B2B] rounded-xl flex items-center justify-center shadow-xs">
               <svg viewBox="0 0 240 105" className="h-full w-auto text-white fill-current">
@@ -257,6 +258,7 @@ export function App() {
             </h1>
           </div>
 
+          {/* 중앙: 4개 메뉴 탭 */}
           <nav className="hidden xl:flex items-center gap-1.5 bg-slate-100/80 dark:bg-slate-800/80 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-700 text-xs font-bold">
             <button
               onClick={() => setActiveTab('monthly')}
@@ -268,18 +270,18 @@ export function App() {
               월간 출석부
             </button>
             <button
-              onClick={() => setActiveTab('quick' as any)}
+              onClick={() => setActiveTab('quick')}
               className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
-                activeTab === ('quick' as any) ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                activeTab === 'quick' ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
               <CheckSquare className="w-4 h-4 text-slate-400" />
               일별 빠른 체크
             </button>
             <button
-              onClick={() => setActiveTab('students' as any)}
+              onClick={() => setActiveTab('students')}
               className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
-                activeTab === ('students' as any) ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                activeTab === 'students' ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
               <Users className="w-4 h-4 text-slate-400" />
@@ -296,6 +298,7 @@ export function App() {
             </button>
           </nav>
 
+          {/* 우측: 권한 스위치 + 스프레드시트 버튼 + 동기화 아이콘 */}
           <div className="flex items-center gap-2">
             <div className="inline-flex bg-slate-100/90 dark:bg-slate-800/90 p-1 rounded-xl text-3xs font-bold border border-slate-200/50">
               <button
@@ -417,7 +420,7 @@ export function App() {
         </div>
       </div>
 
-      {/* 3. 메인 콘텐츠 뷰 */}
+      {/* 3. 메인 콘텐츠 뷰 (4개 메뉴 전체 렌더링 연결 완료) */}
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-5 flex-1 w-full space-y-6">
         {activeTab === 'monthly' && (
           <MonthlyGridView
@@ -435,6 +438,30 @@ export function App() {
               setClearTargetDate('ALL');
               setIsClearModalOpen(true);
             }}
+            userRole={userRole}
+          />
+        )}
+
+        {activeTab === 'quick' && (
+          <QuickCheckView
+            students={students}
+            session={session}
+            year={year}
+            month={month}
+            activeDays={activeDays}
+            records={records}
+            selectedDateStr={selectedDateStr}
+            onSelectDate={setSelectedDateStr}
+            onUpdateRecord={handleUpdateRecord}
+            onFillDayAbsent={handleFillDayAbsent}
+            userRole={userRole}
+          />
+        )}
+
+        {activeTab === 'students' && (
+          <StudentListView
+            students={students}
+            onUpdateStudents={handleUpdateStudents}
             userRole={userRole}
           />
         )}
@@ -510,7 +537,7 @@ export function App() {
         </div>
       )}
 
-      {/* 5. 출결 비우기 모달 (전체 or 특정 날짜 선택 기능 복원) */}
+      {/* 5. 출결 비우기 모달 */}
       {isClearModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-2xs p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
