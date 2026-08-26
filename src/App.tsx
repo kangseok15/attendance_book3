@@ -37,7 +37,8 @@ import {
   Lock, 
   X,
   Phone,
-  Search
+  Search,
+  MessageSquare
 } from 'lucide-react';
 
 const ADMIN_PASSWORD = '4706';
@@ -77,7 +78,7 @@ export function App() {
   const [userRole, setUserRole] = useState<UserRole>(getInitialRoleFromURL);
   const [year, setYear] = useState<number>(2026);
   const [month, setMonth] = useState<number>(8);
-  const [selectedDateStr, setSelectedDateStr] = useState<string>(getTodayDateStr());
+  const [selectedDateStr, setSelectedDateStr] = useState<string>('2026-08-26');
   
   const [studentSearch, setStudentSearch] = useState<string>('');
   const [quickGradeFilter, setQuickGradeFilter] = useState<number | 'all'>('all');
@@ -150,7 +151,6 @@ export function App() {
       setIsAuthModalOpen(true);
     } else {
       setUserRole(targetRole);
-      // 담임 모드로 변경 시 혹시 빠른체크 탭에 있었다면 월간 출석부로 이동
       if (targetRole === 'teacher' && activeTab === 'quick') {
         setActiveTab('monthly');
       }
@@ -179,7 +179,7 @@ export function App() {
     }
   };
 
-  // 출결 수정 및 저장 (담임 교사 모드 업로드 차단 적용)
+  // 출결 수정 및 저장
   const handleUpdateRecord = async (
     studentId: string, 
     dateStr: string, 
@@ -187,12 +187,10 @@ export function App() {
     reason?: string,
     checkInTime?: string
   ) => {
-    // 🔒 담임 교사(teacher)는 조회 전용 모드로 차단
     if (userRole === 'teacher') {
       alert('담임 교사 모드는 [조회 전용]입니다. 출결 수정은 태블릿 또는 관리자 모드에서 진행해 주세요.');
       return;
     }
-    // 🔒 학생(student) 모드 수정 차단
     if (userRole === 'student') {
       return;
     }
@@ -205,7 +203,7 @@ export function App() {
       session,
       dateStr,
       status,
-      reason: reason !== undefined ? reason : records[key]?.reason,
+      reason: reason !== undefined ? reason : (records[key]?.reason || ''),
       checkInTime: records[key]?.checkInTime || nowTime,
       updatedAt: new Date().toISOString(),
     };
@@ -219,12 +217,22 @@ export function App() {
       return nextRecords;
     });
 
-    // 관리자(admin) 모드에서만 구글 시트로 실시간 전송
     syncToGoogleSheets({ 
       recordKey: key, 
       record: singleRecord,
       records: { ...records, [key]: singleRecord } 
     });
+  };
+
+  // 사유 변경 핸들러
+  const handleReasonChange = (studentId: string, dateStr: string, reasonText: string) => {
+    if (userRole === 'teacher' || userRole === 'student') return;
+
+    const key = `${studentId}_${session}_${dateStr}`;
+    const prevRec = records[key];
+    const currentStatus = prevRec?.status || 'NONE';
+
+    handleUpdateRecord(studentId, dateStr, currentStatus, reasonText, prevRec?.checkInTime);
   };
 
   const handleFillDayAbsent = (dateStr: string, gradeFilter?: number) => {
@@ -284,11 +292,24 @@ export function App() {
     setIsClearModalOpen(false);
   };
 
-  const quickFilteredStudents = students.filter(s => {
-    if (!s.active) return false;
-    if (quickGradeFilter !== 'all' && s.grade !== quickGradeFilter) return false;
-    return true;
-  });
+  // 선택된 날짜의 학년별/전체 출석 인원 계산
+  const attendanceStats = useMemo(() => {
+    const stats = { g1: 0, g2: 0, g3: 0, total: 0 };
+    students.forEach(s => {
+      if (!s.active) return;
+      const key = getRecordKey(s.id, session, selectedDateStr);
+      const rec = records[key];
+      if (rec?.status === 'PRESENT') {
+        if (s.grade === 1) stats.g1++;
+        if (s.grade === 2) stats.g2++;
+        if (s.grade === 3) stats.g3++;
+        stats.total++;
+      }
+    });
+    return stats;
+  }, [students, records, session, selectedDateStr]);
+
+  const selectedDayInfo = activeDays.find(d => d.dateStr === selectedDateStr) || { dayNum: 26, dayOfWeek: '수' };
 
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
@@ -321,7 +342,6 @@ export function App() {
               월간 출석부
             </button>
             
-            {/* 담임 교사 모드에서는 '일별 빠른 체크' 탭 숨김 */}
             {userRole !== 'teacher' && (
               <button
                 onClick={() => setActiveTab('quick')}
@@ -499,9 +519,11 @@ export function App() {
           />
         )}
 
-        {/* 탭 2: 일별 빠른 체크 (담임 교사 모드에서는 숨김) */}
+        {/* 탭 2: 일별 빠른 체크 */}
         {activeTab === 'quick' && userRole !== 'teacher' && (
           <div className="space-y-4">
+            
+            {/* 상단 컨트롤 바 */}
             <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/50 rounded-xl text-indigo-600">
@@ -550,71 +572,136 @@ export function App() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {quickFilteredStudents.map(student => {
-                const key = getRecordKey(student.id, session, selectedDateStr);
-                const rec = records[key];
-                const currentStatus = rec?.status || 'NONE';
-                const isExcluded = isStudentExcluded(student, session, selectedDateStr);
+            {/* 아침 / 야간 자율학습 참석 현황 위젯 */}
+            <div className="bg-[#111827] text-white p-4 rounded-2xl shadow-md border border-slate-800 flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block animate-pulse"></span>
+                <span className="font-bold text-sm tracking-tight text-slate-100">
+                  {selectedDayInfo.dayNum}일({selectedDayInfo.dayOfWeek}) {session === 'morning' ? '아침' : '야간'} 자율학습 참석 현황
+                </span>
+              </div>
 
-                return (
-                  <div 
-                    key={student.id} 
-                    className={`p-4 rounded-2xl border transition-all ${
-                      isExcluded ? 'bg-slate-100/80 border-slate-300 opacity-75' :
-                      currentStatus === 'PRESENT' ? 'bg-emerald-50/40 border-emerald-200' :
-                      currentStatus === 'LATE' ? 'bg-amber-50/40 border-amber-200' :
-                      currentStatus === 'ABSENT' ? 'bg-rose-50/40 border-rose-200' :
-                      'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-xs'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2.5">
-                      <div>
-                        <span className="text-3xs font-mono text-slate-400 block">
-                          {student.grade}-{student.classNum}-{student.studentNum}
-                        </span>
-                        <h4 className="font-bold text-sm text-slate-900 dark:text-white">
-                          {student.name}
-                        </h4>
-                      </div>
-                      <span className={`px-2 py-0.5 rounded text-3xs font-black ${
-                        currentStatus === 'PRESENT' ? 'bg-emerald-100 text-emerald-700' :
-                        currentStatus === 'LATE' ? 'bg-amber-100 text-amber-700' :
-                        currentStatus === 'ABSENT' ? 'bg-rose-100 text-rose-700' :
-                        currentStatus === 'EARLY_LEAVE' ? 'bg-purple-100 text-purple-700' :
-                        currentStatus === 'OFFICIAL_ABSENT' ? 'bg-blue-100 text-blue-700' :
-                        'bg-slate-100 text-slate-400'
-                      }`}>
-                        {QUICK_STATUS_LABELS[currentStatus]}
-                      </span>
-                    </div>
+              <div className="flex flex-wrap items-center gap-2.5 text-xs font-bold">
+                <div className="bg-slate-800/90 border border-slate-700/80 px-3.5 py-1.5 rounded-xl flex items-center gap-2 text-slate-300">
+                  <span>1학년 출석인원 :</span>
+                  <span className="text-emerald-400 font-mono font-black">{attendanceStats.g1}명</span>
+                </div>
+                <div className="bg-slate-800/90 border border-slate-700/80 px-3.5 py-1.5 rounded-xl flex items-center gap-2 text-slate-300">
+                  <span>2학년 출석인원 :</span>
+                  <span className="text-emerald-400 font-mono font-black">{attendanceStats.g2}명</span>
+                </div>
+                <div className="bg-slate-800/90 border border-slate-700/80 px-3.5 py-1.5 rounded-xl flex items-center gap-2 text-slate-300">
+                  <span>3학년 출석인원 :</span>
+                  <span className="text-emerald-400 font-mono font-black">{attendanceStats.g3}명</span>
+                </div>
+                <div className="bg-indigo-600 px-4 py-1.5 rounded-xl flex items-center gap-2 text-white shadow-sm font-black">
+                  <span>전체 출석인원 :</span>
+                  <span className="font-mono text-amber-300">{attendanceStats.total}명</span>
+                </div>
+              </div>
+            </div>
 
-                    <div className="grid grid-cols-5 gap-1 pt-2 border-t border-slate-100 dark:border-slate-800">
-                      {(['PRESENT', 'LATE', 'ABSENT', 'EARLY_LEAVE', 'OFFICIAL_ABSENT'] as AttendanceStatus[]).map(st => (
-                        <button
-                          key={st}
-                          disabled={userRole === 'student' || userRole === 'teacher'}
-                          onClick={() => handleUpdateRecord(student.id, selectedDateStr, st)}
-                          className={`py-1 text-3xs font-bold rounded-lg transition-colors ${
-                            currentStatus === st
-                              ? 'bg-indigo-600 text-white shadow-xs'
-                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200'
+            {/* 학년별 구분 리스트 (3학년 -> 2학년 -> 1학년) */}
+            {([3, 2, 1] as const).map(targetGrade => {
+              if (quickGradeFilter !== 'all' && quickGradeFilter !== targetGrade) return null;
+
+              const gradeStudents = students.filter(s => s.active && s.grade === targetGrade);
+              if (gradeStudents.length === 0) return null;
+
+              return (
+                <div key={targetGrade} className="space-y-2.5 pt-2">
+                  <div className="flex items-center gap-2 px-1">
+                    <span className="w-2 h-4 bg-indigo-600 rounded-xs"></span>
+                    <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">
+                      {targetGrade}학년 ({gradeStudents.length}명)
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {gradeStudents.map(student => {
+                      const key = getRecordKey(student.id, session, selectedDateStr);
+                      const rec = records[key];
+                      const currentStatus = rec?.status || 'NONE';
+                      const isExcluded = isStudentExcluded(student, session, selectedDateStr);
+
+                      return (
+                        <div 
+                          key={student.id} 
+                          className={`p-4 rounded-2xl border transition-all flex flex-col justify-between ${
+                            isExcluded ? 'bg-slate-100/80 border-slate-300 opacity-75' :
+                            currentStatus === 'PRESENT' ? 'bg-emerald-50/40 border-emerald-200' :
+                            currentStatus === 'LATE' ? 'bg-amber-50/40 border-amber-200' :
+                            currentStatus === 'ABSENT' ? 'bg-rose-50/40 border-rose-200' :
+                            'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-xs'
                           }`}
                         >
-                          {QUICK_STATUS_ICONS[st]}
-                        </button>
-                      ))}
-                    </div>
+                          <div>
+                            <div className="flex items-center justify-between mb-2.5">
+                              <div>
+                                <span className="text-3xs font-mono text-slate-400 block">
+                                  {student.grade}-{student.classNum}-{student.studentNum}
+                                </span>
+                                <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                                  {student.name}
+                                </h4>
+                              </div>
+                              <span className={`px-2 py-0.5 rounded text-3xs font-black ${
+                                currentStatus === 'PRESENT' ? 'bg-emerald-100 text-emerald-700' :
+                                currentStatus === 'LATE' ? 'bg-amber-100 text-amber-700' :
+                                currentStatus === 'ABSENT' ? 'bg-rose-100 text-rose-700' :
+                                currentStatus === 'EARLY_LEAVE' ? 'bg-purple-100 text-purple-700' :
+                                currentStatus === 'OFFICIAL_ABSENT' ? 'bg-blue-100 text-blue-700' :
+                                'bg-slate-100 text-slate-400'
+                              }`}>
+                                {QUICK_STATUS_LABELS[currentStatus]}
+                              </span>
+                            </div>
 
-                    {rec?.checkInTime && (
-                      <p className="text-3xs text-slate-400 font-mono mt-2 text-right">
-                        🕒 {rec.checkInTime}
-                      </p>
-                    )}
+                            <div className="grid grid-cols-5 gap-1 pt-2 border-t border-slate-100 dark:border-slate-800">
+                              {(['PRESENT', 'LATE', 'ABSENT', 'EARLY_LEAVE', 'OFFICIAL_ABSENT'] as AttendanceStatus[]).map(st => (
+                                <button
+                                  key={st}
+                                  disabled={userRole === 'student' || userRole === 'teacher'}
+                                  onClick={() => handleUpdateRecord(student.id, selectedDateStr, st)}
+                                  className={`py-1 text-3xs font-bold rounded-lg transition-colors ${
+                                    currentStatus === st
+                                      ? 'bg-indigo-600 text-white shadow-xs'
+                                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200'
+                                  }`}
+                                >
+                                  {QUICK_STATUS_ICONS[st]}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* 사유 주관식 입력란 & 시간 표시 */}
+                          <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+                            <div className="relative flex items-center">
+                              <MessageSquare className="w-3 h-3 absolute left-2 text-slate-400" />
+                              <input
+                                type="text"
+                                placeholder="사유 입력 (예: 병결, 수행, 상담)..."
+                                value={rec?.reason || ''}
+                                disabled={userRole === 'student' || userRole === 'teacher'}
+                                onChange={e => handleReasonChange(student.id, selectedDateStr, e.target.value)}
+                                className="w-full pl-6 pr-2 py-1 text-3xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-indigo-500 text-slate-700 dark:text-slate-200"
+                              />
+                            </div>
+
+                            {rec?.checkInTime && (
+                              <p className="text-3xs text-slate-400 font-mono text-right">
+                                🕒 {rec.checkInTime}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
