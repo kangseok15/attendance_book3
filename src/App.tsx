@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Student, 
   SessionType, 
@@ -13,12 +13,17 @@ import {
   UserRole,
   TabType 
 } from './types/attendance';
-import { getTodayDateStr } from './utils/attendanceHelpers';
+import { 
+  getRecordKey, 
+  getTodayDateStr, 
+  STATUS_CYCLE, 
+  STATUS_ICONS, 
+  STATUS_LABELS,
+  isStudentExcluded 
+} from './utils/attendanceHelpers';
 import { fetchFromGoogleSheets, syncToGoogleSheets } from './utils/googleSync';
 import { MonthlyGridView } from './components/MonthlyGridView';
 import { AnalyticsView } from './components/AnalyticsView';
-import { QuickCheckView } from './components/QuickCheckView';
-import { StudentListView } from './components/StudentListView';
 import { 
   Calendar as CalendarIcon, 
   CheckSquare, 
@@ -28,18 +33,21 @@ import {
   GraduationCap, 
   User, 
   FileSpreadsheet, 
-  RefreshCw,
-  ChevronLeft,
-  ChevronRight,
-  RotateCcw,
-  Lock,
-  X
+  RefreshCw, 
+  ChevronLeft, 
+  ChevronRight, 
+  RotateCcw, 
+  Lock, 
+  X,
+  Phone,
+  Search,
+  CheckCircle2,
+  Clock,
+  FileText
 } from 'lucide-react';
 
-// 관리자 접근 비밀번호
 const ADMIN_PASSWORD = '4706';
 
-// URL 파라미터(?role=teacher 등)에서 초기 역할 감지 함수
 const getInitialRoleFromURL = (): UserRole => {
   if (typeof window !== 'undefined') {
     const params = new URLSearchParams(window.location.search);
@@ -48,7 +56,7 @@ const getInitialRoleFromURL = (): UserRole => {
     if (roleParam === 'admin') return 'admin';
     if (roleParam === 'student') return 'student';
   }
-  return 'student'; // 기본값: 학생
+  return 'student';
 };
 
 export function App() {
@@ -59,6 +67,10 @@ export function App() {
   const [month, setMonth] = useState<number>(8);
   const [selectedDateStr, setSelectedDateStr] = useState<string>(getTodayDateStr());
   
+  // 검색 및 필터 상태
+  const [studentSearch, setStudentSearch] = useState<string>('');
+  const [quickGradeFilter, setQuickGradeFilter] = useState<number | 'all'>('all');
+
   // 모달 상태
   const [isClearModalOpen, setIsClearModalOpen] = useState<boolean>(false);
   const [clearTargetDate, setClearTargetDate] = useState<string>('ALL');
@@ -66,7 +78,19 @@ export function App() {
   const [passwordInput, setPasswordInput] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
 
-  // 로컬 백업 기반 안전 로딩
+  // 사유 상세 모달 상태
+  const [detailModal, setDetailModal] = useState<{
+    isOpen: boolean;
+    student?: Student;
+    dateStr: string;
+    record?: AttendanceRecord;
+    reasonText: string;
+  }>({
+    isOpen: false,
+    dateStr: '',
+    reasonText: '',
+  });
+
   const [students, setStudents] = useState<Student[]>(() => {
     const saved = localStorage.getItem('mirae_students_backup');
     return saved ? JSON.parse(saved) : [];
@@ -79,7 +103,6 @@ export function App() {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSynced, setLastSynced] = useState<string>('');
 
-  // 8월 운영일 설정
   const activeDays: DayConfig[] = useMemo(() => {
     return [
       { dateStr: '2026-08-19', dayNum: 19, dayOfWeek: '수' },
@@ -94,7 +117,6 @@ export function App() {
     ];
   }, []);
 
-  // 구글 시트 안전 병합 동기화
   const loadData = async () => {
     setIsSyncing(true);
     const data = await fetchFromGoogleSheets();
@@ -123,7 +145,6 @@ export function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // 역할 전환 핸들러
   const handleRoleChange = (targetRole: UserRole) => {
     if (targetRole === 'admin') {
       if (userRole === 'admin') return;
@@ -237,14 +258,20 @@ export function App() {
     setIsClearModalOpen(false);
   };
 
+  // 일별 빠른 체크용 학생 필터링
+  const quickFilteredStudents = students.filter(s => {
+    if (!s.active) return false;
+    if (quickGradeFilter !== 'all' && s.grade !== quickGradeFilter) return false;
+    return true;
+  });
+
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
       
-      {/* 1. 최상단 메인 네비게이션 헤더 바 */}
+      {/* 1. 최상단 헤더 */}
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 sticky top-0 z-40 shadow-2xs">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           
-          {/* 좌측: 로고 + 타이틀 */}
           <div className="flex items-center gap-3 shrink-0">
             <div className="h-9 px-2.5 py-1 bg-[#801B2B] rounded-xl flex items-center justify-center shadow-xs">
               <svg viewBox="0 0 240 105" className="h-full w-auto text-white fill-current">
@@ -258,7 +285,6 @@ export function App() {
             </h1>
           </div>
 
-          {/* 중앙: 4개 메뉴 탭 */}
           <nav className="hidden xl:flex items-center gap-1.5 bg-slate-100/80 dark:bg-slate-800/80 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-700 text-xs font-bold">
             <button
               onClick={() => setActiveTab('monthly')}
@@ -298,7 +324,6 @@ export function App() {
             </button>
           </nav>
 
-          {/* 우측: 권한 스위치 + 스프레드시트 버튼 + 동기화 아이콘 */}
           <div className="flex items-center gap-2">
             <div className="inline-flex bg-slate-100/90 dark:bg-slate-800/90 p-1 rounded-xl text-3xs font-bold border border-slate-200/50">
               <button
@@ -352,7 +377,7 @@ export function App() {
         </div>
       </header>
 
-      {/* 2. 2열 서브 컨트롤 바 */}
+      {/* 2. 서브 컨트롤 바 */}
       <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xs border-b border-slate-200/80 dark:border-slate-800 px-4 sm:px-6 py-2.5">
         <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-3">
           
@@ -420,8 +445,10 @@ export function App() {
         </div>
       </div>
 
-      {/* 3. 메인 콘텐츠 뷰 (4개 메뉴 전체 렌더링 연결 완료) */}
+      {/* 3. 메인 콘텐츠 뷰 */}
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-5 flex-1 w-full space-y-6">
+        
+        {/* 탭 1: 월간 출석부 */}
         {activeTab === 'monthly' && (
           <MonthlyGridView
             students={students}
@@ -442,30 +469,212 @@ export function App() {
           />
         )}
 
+        {/* 탭 2: 일별 빠른 체크 (직접 렌더링 구현) */}
         {activeTab === 'quick' && (
-          <QuickCheckView
-            students={students}
-            session={session}
-            year={year}
-            month={month}
-            activeDays={activeDays}
-            records={records}
-            selectedDateStr={selectedDateStr}
-            onSelectDate={setSelectedDateStr}
-            onUpdateRecord={handleUpdateRecord}
-            onFillDayAbsent={handleFillDayAbsent}
-            userRole={userRole}
-          />
+          <div className="space-y-4">
+            <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/50 rounded-xl text-indigo-600">
+                  <CheckSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                    일별 빠른 출결 체크 ({selectedDateStr})
+                  </h2>
+                  <p className="text-3xs text-slate-400 mt-0.5">
+                    버튼을 클릭하여 출석, 지각, 결석, 조퇴, 공결 상태를 바로 입력할 수 있습니다.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={selectedDateStr}
+                  onChange={e => setSelectedDateStr(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-bold border-none"
+                >
+                  {activeDays.map(d => (
+                    <option key={d.dateStr} value={d.dateStr}>
+                      {d.dayNum}일 ({d.dayOfWeek})
+                    </option>
+                  ))}
+                </select>
+
+                <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold">
+                  <button
+                    onClick={() => setQuickGradeFilter('all')}
+                    className={`px-3 py-1 rounded-lg ${quickGradeFilter === 'all' ? 'bg-indigo-600 text-white' : 'text-slate-600'}`}
+                  >
+                    전체
+                  </button>
+                  {[3, 2, 1].map(g => (
+                    <button
+                      key={g}
+                      onClick={() => setQuickGradeFilter(g)}
+                      className={`px-3 py-1 rounded-lg ${quickGradeFilter === g ? 'bg-indigo-600 text-white' : 'text-slate-600'}`}
+                    >
+                      {g}학년
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* 빠른 체크 카드 그리드 */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {quickFilteredStudents.map(student => {
+                const key = getRecordKey(student.id, session, selectedDateStr);
+                const rec = records[key];
+                const currentStatus = rec?.status || 'NONE';
+                const isExcluded = isStudentExcluded(student, session, selectedDateStr);
+
+                return (
+                  <div 
+                    key={student.id} 
+                    className={`p-4 rounded-2xl border transition-all ${
+                      isExcluded ? 'bg-slate-100/80 border-slate-300 opacity-75' :
+                      currentStatus === 'PRESENT' ? 'bg-emerald-50/40 border-emerald-200' :
+                      currentStatus === 'LATE' ? 'bg-amber-50/40 border-amber-200' :
+                      currentStatus === 'ABSENT' ? 'bg-rose-50/40 border-rose-200' :
+                      'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-xs'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2.5">
+                      <div>
+                        <span className="text-3xs font-mono text-slate-400 block">
+                          {student.grade}-{student.classNum}-{student.studentNum}
+                        </span>
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                          {student.name}
+                        </h4>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-3xs font-black ${
+                        currentStatus === 'PRESENT' ? 'bg-emerald-100 text-emerald-700' :
+                        currentStatus === 'LATE' ? 'bg-amber-100 text-amber-700' :
+                        currentStatus === 'ABSENT' ? 'bg-rose-100 text-rose-700' :
+                        currentStatus === 'EARLY_LEAVE' ? 'bg-purple-100 text-purple-700' :
+                        currentStatus === 'OFFICIAL_ABSENT' ? 'bg-blue-100 text-blue-700' :
+                        'bg-slate-100 text-slate-400'
+                      }`}>
+                        {STATUS_LABELS[currentStatus]}
+                      </span>
+                    </div>
+
+                    {/* 빠른 상태 변경 버튼 그룹 */}
+                    <div className="grid grid-cols-5 gap-1 pt-2 border-t border-slate-100 dark:border-slate-800">
+                      {(['PRESENT', 'LATE', 'ABSENT', 'EARLY_LEAVE', 'OFFICIAL_ABSENT'] as AttendanceStatus[]).map(st => (
+                        <button
+                          key={st}
+                          disabled={userRole === 'student'}
+                          onClick={() => handleUpdateRecord(student.id, selectedDateStr, st)}
+                          className={`py-1 text-3xs font-bold rounded-lg transition-colors ${
+                            currentStatus === st
+                              ? 'bg-indigo-600 text-white shadow-xs'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          {STATUS_ICONS[st]}
+                        </button>
+                      ))}
+                    </div>
+
+                    {rec?.checkInTime && (
+                      <p className="text-3xs text-slate-400 font-mono mt-2 text-right">
+                        🕒 {rec.checkInTime}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
 
+        {/* 탭 3: 학생 명단 및 학생/학부모 연락처 (직접 렌더링 구현) */}
         {activeTab === 'students' && (
-          <StudentListView
-            students={students}
-            onUpdateStudents={handleUpdateStudents}
-            userRole={userRole}
-          />
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-800/60">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                  미래인재반 전체 학생 명단 및 비상 연락망
+                </h3>
+              </div>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="이름 / 학번 검색..."
+                  value={studentSearch}
+                  onChange={e => setStudentSearch(e.target.value)}
+                  className="pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 w-48"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 font-bold border-b border-slate-200">
+                  <tr>
+                    <th className="py-3 px-4 text-center w-12">연번</th>
+                    <th className="py-3 px-4 w-28">학년-반-번호</th>
+                    <th className="py-3 px-4 w-24">이름</th>
+                    <th className="py-3 px-4">학생 연락처</th>
+                    <th className="py-3 px-4">학부모 연락처</th>
+                    <th className="py-3 px-4">학원 요일 (야자 제외)</th>
+                    <th className="py-3 px-4">비고</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {students
+                    .filter(s => 
+                      s.name.includes(studentSearch) || 
+                      `${s.grade}${s.classNum}${s.studentNum}`.includes(studentSearch)
+                    )
+                    .map((student, idx) => (
+                      <tr key={student.id} className="hover:bg-slate-50/60">
+                        <td className="py-2.5 px-4 text-center font-mono text-slate-400">{idx + 1}</td>
+                        <td className="py-2.5 px-4 font-mono font-semibold">{student.grade}학년 {student.classNum}반 {student.studentNum}번</td>
+                        <td className="py-2.5 px-4 font-bold text-slate-900 dark:text-white">{student.name}</td>
+                        <td className="py-2.5 px-4 font-mono text-slate-600">
+                          {student.phone ? (
+                            <a href={`tel:${student.phone}`} className="flex items-center gap-1 hover:text-indigo-600">
+                              <Phone className="w-3 h-3 text-indigo-500" />
+                              {student.phone}
+                            </a>
+                          ) : '-'}
+                        </td>
+                        <td className="py-2.5 px-4 font-mono text-slate-600">
+                          {student.parentPhone ? (
+                            <a href={`tel:${student.parentPhone}`} className="flex items-center gap-1 hover:text-emerald-600 font-semibold text-emerald-700">
+                              <Phone className="w-3 h-3 text-emerald-500" />
+                              {student.parentPhone}
+                            </a>
+                          ) : '-'}
+                        </td>
+                        <td className="py-2.5 px-4">
+                          <div className="flex gap-1">
+                            {student.academyDays && student.academyDays.length > 0 ? (
+                              student.academyDays.map(d => (
+                                <span key={d} className="px-1.5 py-0.5 bg-rose-50 text-rose-600 rounded text-3xs font-bold border border-rose-200">
+                                  {d}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-slate-400 text-3xs">없음 (매일 참여)</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-4 text-slate-500 text-3xs">{student.notes || '-'}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
 
+        {/* 탭 4: 통계 및 분석 */}
         {activeTab === 'analytics' && (
           <AnalyticsView
             students={students}
@@ -477,6 +686,7 @@ export function App() {
             userRole={userRole}
           />
         )}
+
       </main>
 
       {/* 4. 관리자 비밀번호 입력 모달 */}
