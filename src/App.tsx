@@ -79,7 +79,7 @@ export function App() {
   const [userRole, setUserRole] = useState<UserRole>(getInitialRoleFromURL);
   const [year, setYear] = useState<number>(2026);
   const [month, setMonth] = useState<number>(8);
-  const [selectedDateStr, setSelectedDateStr] = useState<string>('2026-08-26');
+  const [selectedDateStr, setSelectedDateStr] = useState<string>('2026-08-27');
   
   const [studentSearch, setStudentSearch] = useState<string>('');
   const [quickGradeFilter, setQuickGradeFilter] = useState<number | 'all'>('all');
@@ -189,7 +189,7 @@ export function App() {
     }
   };
 
-  // 출결 수정 및 저장
+  // 출결 수정 및 저장 (학생과 관리자 모두 입력 및 시트 동기화 가능)
   const handleUpdateRecord = async (
     studentId: string, 
     dateStr: string, 
@@ -197,11 +197,9 @@ export function App() {
     reason?: string,
     checkInTime?: string
   ) => {
+    // 🔒 오직 '담임 교사 모드(teacher)'만 조회 전용으로 차단
     if (userRole === 'teacher') {
       alert('담임 교사 모드는 [조회 전용]입니다. 출결 수정은 태블릿 또는 관리자 모드에서 진행해 주세요.');
-      return;
-    }
-    if (userRole === 'student') {
       return;
     }
 
@@ -227,6 +225,7 @@ export function App() {
       return nextRecords;
     });
 
+    // 태블릿(학생) 및 관리자 모두 시트로 안전하게 실시간 전송
     syncToGoogleSheets({ 
       recordKey: key, 
       record: singleRecord,
@@ -235,7 +234,7 @@ export function App() {
   };
 
   const handleReasonChange = (studentId: string, dateStr: string, reasonText: string) => {
-    if (userRole === 'teacher' || userRole === 'student') return;
+    if (userRole === 'teacher') return;
 
     const key = `${studentId}_${session}_${dateStr}`;
     const prevRec = records[key];
@@ -317,7 +316,7 @@ export function App() {
     return stats;
   }, [students, records, session, selectedDateStr]);
 
-  const selectedDayInfo = activeDays.find(d => d.dateStr === selectedDateStr) || { dayNum: 26, dayOfWeek: '수' };
+  const selectedDayInfo = activeDays.find(d => d.dateStr === selectedDateStr) || { dayNum: 27, dayOfWeek: '목' };
 
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
@@ -669,7 +668,7 @@ export function App() {
                               {(['PRESENT', 'LATE', 'ABSENT', 'EARLY_LEAVE', 'OFFICIAL_ABSENT'] as AttendanceStatus[]).map(st => (
                                 <button
                                   key={st}
-                                  disabled={userRole === 'student' || userRole === 'teacher'}
+                                  disabled={userRole === 'teacher'}
                                   onClick={() => handleUpdateRecord(student.id, selectedDateStr, st)}
                                   className={`py-1 text-3xs font-bold rounded-lg transition-colors ${
                                     currentStatus === st
@@ -691,7 +690,7 @@ export function App() {
                                 type="text"
                                 placeholder="사유 입력 (예: 병결, 수행, 상담)..."
                                 value={rec?.reason || ''}
-                                disabled={userRole === 'student' || userRole === 'teacher'}
+                                disabled={userRole === 'teacher'}
                                 onChange={e => handleReasonChange(student.id, selectedDateStr, e.target.value)}
                                 className="w-full pl-6 pr-2 py-1 text-3xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-indigo-500 text-slate-700 dark:text-slate-200"
                               />
