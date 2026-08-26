@@ -138,7 +138,7 @@ export function App() {
     loadData();
     const timer = setInterval(() => {
       loadData();
-    }, 15000); // 15초 주기로 단축하여 실시간성 대폭 강화
+    }, 15000);
     return () => clearInterval(timer);
   }, []);
 
@@ -150,6 +150,10 @@ export function App() {
       setIsAuthModalOpen(true);
     } else {
       setUserRole(targetRole);
+      // 담임 모드로 변경 시 혹시 빠른체크 탭에 있었다면 월간 출석부로 이동
+      if (targetRole === 'teacher' && activeTab === 'quick') {
+        setActiveTab('monthly');
+      }
       const url = new URL(window.location.href);
       if (targetRole === 'student') {
         url.searchParams.delete('role');
@@ -175,7 +179,7 @@ export function App() {
     }
   };
 
-  // 1명 터치 시 1건만 즉시 가볍게 전송 (모바일 씹힘 현상 원천 차단)
+  // 출결 수정 및 저장 (담임 교사 모드 업로드 차단 적용)
   const handleUpdateRecord = async (
     studentId: string, 
     dateStr: string, 
@@ -183,6 +187,16 @@ export function App() {
     reason?: string,
     checkInTime?: string
   ) => {
+    // 🔒 담임 교사(teacher)는 조회 전용 모드로 차단
+    if (userRole === 'teacher') {
+      alert('담임 교사 모드는 [조회 전용]입니다. 출결 수정은 태블릿 또는 관리자 모드에서 진행해 주세요.');
+      return;
+    }
+    // 🔒 학생(student) 모드 수정 차단
+    if (userRole === 'student') {
+      return;
+    }
+
     const key = `${studentId}_${session}_${dateStr}`;
     const nowTime = checkInTime || `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`;
     
@@ -205,7 +219,7 @@ export function App() {
       return nextRecords;
     });
 
-    // 전체 덩어리가 아닌 방금 수정한 1건 + 백업 전체를 함께 전달
+    // 관리자(admin) 모드에서만 구글 시트로 실시간 전송
     syncToGoogleSheets({ 
       recordKey: key, 
       record: singleRecord,
@@ -214,6 +228,8 @@ export function App() {
   };
 
   const handleFillDayAbsent = (dateStr: string, gradeFilter?: number) => {
+    if (userRole !== 'admin') return;
+
     setRecords(prev => {
       const nextRecords = { ...prev };
       students.forEach(st => {
@@ -238,12 +254,16 @@ export function App() {
   };
 
   const handleUpdateStudents = (updatedStudents: Student[]) => {
+    if (userRole !== 'admin') return;
+
     setStudents(updatedStudents);
     localStorage.setItem('mirae_students_backup', JSON.stringify(updatedStudents));
     syncToGoogleSheets({ students: updatedStudents });
   };
 
   const handleExecuteClear = () => {
+    if (userRole !== 'admin') return;
+
     setRecords(prev => {
       const nextRecords = { ...prev };
       Object.keys(nextRecords).forEach(k => {
@@ -300,15 +320,20 @@ export function App() {
               <CalendarIcon className="w-4 h-4 text-indigo-500" />
               월간 출석부
             </button>
-            <button
-              onClick={() => setActiveTab('quick')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
-                activeTab === 'quick' ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-              }`}
-            >
-              <CheckSquare className="w-4 h-4 text-slate-400" />
-              일별 빠른 체크
-            </button>
+            
+            {/* 담임 교사 모드에서는 '일별 빠른 체크' 탭 숨김 */}
+            {userRole !== 'teacher' && (
+              <button
+                onClick={() => setActiveTab('quick')}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
+                  activeTab === 'quick' ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                }`}
+              >
+                <CheckSquare className="w-4 h-4 text-slate-400" />
+                일별 빠른 체크
+              </button>
+            )}
+
             <button
               onClick={() => setActiveTab('students')}
               className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
@@ -474,8 +499,8 @@ export function App() {
           />
         )}
 
-        {/* 탭 2: 일별 빠른 체크 */}
-        {activeTab === 'quick' && (
+        {/* 탭 2: 일별 빠른 체크 (담임 교사 모드에서는 숨김) */}
+        {activeTab === 'quick' && userRole !== 'teacher' && (
           <div className="space-y-4">
             <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3">
@@ -568,7 +593,7 @@ export function App() {
                       {(['PRESENT', 'LATE', 'ABSENT', 'EARLY_LEAVE', 'OFFICIAL_ABSENT'] as AttendanceStatus[]).map(st => (
                         <button
                           key={st}
-                          disabled={userRole === 'student'}
+                          disabled={userRole === 'student' || userRole === 'teacher'}
                           onClick={() => handleUpdateRecord(student.id, selectedDateStr, st)}
                           className={`py-1 text-3xs font-bold rounded-lg transition-colors ${
                             currentStatus === st
