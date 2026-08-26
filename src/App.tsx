@@ -16,9 +16,6 @@ import {
 import { 
   getRecordKey, 
   getTodayDateStr, 
-  STATUS_CYCLE, 
-  STATUS_ICONS, 
-  STATUS_LABELS,
   isStudentExcluded 
 } from './utils/attendanceHelpers';
 import { fetchFromGoogleSheets, syncToGoogleSheets } from './utils/googleSync';
@@ -40,13 +37,29 @@ import {
   Lock, 
   X,
   Phone,
-  Search,
-  CheckCircle2,
-  Clock,
-  FileText
+  Search
 } from 'lucide-react';
 
 const ADMIN_PASSWORD = '4706';
+
+// App 내부 전용 출결 기호 및 라벨 매핑
+const QUICK_STATUS_ICONS: Record<AttendanceStatus, string> = {
+  PRESENT: '○',
+  LATE: '△',
+  EARLY_LEAVE: '∅',
+  OFFICIAL_ABSENT: '공',
+  ABSENT: 'X',
+  NONE: ''
+};
+
+const QUICK_STATUS_LABELS: Record<AttendanceStatus, string> = {
+  PRESENT: '출석',
+  LATE: '지각',
+  EARLY_LEAVE: '조퇴',
+  OFFICIAL_ABSENT: '공결',
+  ABSENT: '결석',
+  NONE: '미체크'
+};
 
 const getInitialRoleFromURL = (): UserRole => {
   if (typeof window !== 'undefined') {
@@ -77,19 +90,6 @@ export function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [passwordInput, setPasswordInput] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
-
-  // 사유 상세 모달 상태
-  const [detailModal, setDetailModal] = useState<{
-    isOpen: boolean;
-    student?: Student;
-    dateStr: string;
-    record?: AttendanceRecord;
-    reasonText: string;
-  }>({
-    isOpen: false,
-    dateStr: '',
-    reasonText: '',
-  });
 
   const [students, setStudents] = useState<Student[]>(() => {
     const saved = localStorage.getItem('mirae_students_backup');
@@ -258,7 +258,6 @@ export function App() {
     setIsClearModalOpen(false);
   };
 
-  // 일별 빠른 체크용 학생 필터링
   const quickFilteredStudents = students.filter(s => {
     if (!s.active) return false;
     if (quickGradeFilter !== 'all' && s.grade !== quickGradeFilter) return false;
@@ -268,7 +267,7 @@ export function App() {
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
       
-      {/* 1. 최상단 헤더 */}
+      {/* 1. 최상단 네비게이션 바 */}
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 sticky top-0 z-40 shadow-2xs">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           
@@ -469,7 +468,7 @@ export function App() {
           />
         )}
 
-        {/* 탭 2: 일별 빠른 체크 (직접 렌더링 구현) */}
+        {/* 탭 2: 일별 빠른 체크 */}
         {activeTab === 'quick' && (
           <div className="space-y-4">
             <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-wrap items-center justify-between gap-4">
@@ -520,7 +519,6 @@ export function App() {
               </div>
             </div>
 
-            {/* 빠른 체크 카드 그리드 */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
               {quickFilteredStudents.map(student => {
                 const key = getRecordKey(student.id, session, selectedDateStr);
@@ -556,11 +554,10 @@ export function App() {
                         currentStatus === 'OFFICIAL_ABSENT' ? 'bg-blue-100 text-blue-700' :
                         'bg-slate-100 text-slate-400'
                       }`}>
-                        {STATUS_LABELS[currentStatus]}
+                        {QUICK_STATUS_LABELS[currentStatus]}
                       </span>
                     </div>
 
-                    {/* 빠른 상태 변경 버튼 그룹 */}
                     <div className="grid grid-cols-5 gap-1 pt-2 border-t border-slate-100 dark:border-slate-800">
                       {(['PRESENT', 'LATE', 'ABSENT', 'EARLY_LEAVE', 'OFFICIAL_ABSENT'] as AttendanceStatus[]).map(st => (
                         <button
@@ -573,7 +570,7 @@ export function App() {
                               : 'bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200'
                           }`}
                         >
-                          {STATUS_ICONS[st]}
+                          {QUICK_STATUS_ICONS[st]}
                         </button>
                       ))}
                     </div>
@@ -590,7 +587,7 @@ export function App() {
           </div>
         )}
 
-        {/* 탭 3: 학생 명단 및 학생/학부모 연락처 (직접 렌더링 구현) */}
+        {/* 탭 3: 학생 명단 및 비상 연락망 */}
         {activeTab === 'students' && (
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-800/60">
