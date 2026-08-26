@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 
 // 관리자 접근 비밀번호 (원하시는 비밀번호로 자유롭게 변경 가능)
-const ADMIN_PASSWORD = '숭신';
+const ADMIN_PASSWORD = '4706';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabType>('monthly');
