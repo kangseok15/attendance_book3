@@ -15,7 +15,6 @@ import {
 import { 
   getRecordKey, 
   isStudentExcluded, 
-  getNextStatus, 
   getStatusBadge 
 } from '../utils/attendanceHelpers';
 import { 
@@ -23,7 +22,6 @@ import {
   Printer, 
   RotateCcw, 
   HelpCircle,
-  Users,
   ChevronDown
 } from 'lucide-react';
 
@@ -42,22 +40,33 @@ interface MonthlyGridViewProps {
   userRole: UserRole;
 }
 
+// 다음 출결 상태 순환 로직
+const getNextStatus = (current: AttendanceStatus): AttendanceStatus => {
+  switch (current) {
+    case 'NONE': return 'PRESENT';
+    case 'PRESENT': return 'LATE';
+    case 'LATE': return 'EARLY_LEAVE';
+    case 'EARLY_LEAVE': return 'OFFICIAL_ABSENT';
+    case 'OFFICIAL_ABSENT': return 'ABSENT';
+    case 'ABSENT': return 'NONE';
+    default: return 'PRESENT';
+  }
+};
+
 export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
   students,
   session,
-  year,
   month,
   activeDays,
   records,
   onUpdateRecord,
-  onFillDayAbsent,
   onOpenClearModal,
   userRole,
 }) => {
   const [selectedGrade, setSelectedGrade] = useState<number | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   
-  // 기본 선택 날짜 (오늘 날짜가 포함되어 있으면 오늘, 아니면 첫날)
+  // 기본 선택 날짜 (선택 일자 유지)
   const [selectedStatDate, setSelectedStatDate] = useState<string>(() => {
     return activeDays.find(d => d.dateStr === '2026-08-26')?.dateStr || activeDays[0]?.dateStr || '2026-08-26';
   });
@@ -76,7 +85,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
     });
   }, [students, selectedGrade, searchQuery]);
 
-  // 참석 현황 통계 계산 (선택된 날짜 + 아침/야자 공통)
+  // 참석 현황 통계 계산 (아침 / 야간 공통 적용)
   const attendanceStats = useMemo(() => {
     const stats = { g1: 0, g2: 0, g3: 0, total: 0 };
     students.forEach(s => {
@@ -143,7 +152,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
           </div>
         </div>
 
-        {/* 범례 및 도움말 안내 */}
+        {/* 범례 안내 */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1 text-xs">
           <div className="flex flex-wrap items-center gap-1.5 text-slate-600 dark:text-slate-400 text-3xs">
             <span className="font-semibold text-slate-400">셀 클릭 순서:</span>
@@ -168,7 +177,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
           </div>
         </div>
 
-        {/* 필터 및 검색 컨트롤 */}
+        {/* 학년 필터 및 검색 */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold">
             <button
@@ -215,7 +224,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
         </div>
       </div>
 
-      {/* 2. 참석 현황 위젯 (아침 / 야간 모두 항상 표시) */}
+      {/* 2. 참석 현황 위젯 (아침 / 야간 모두 표시) */}
       <div className="bg-[#111827] text-white p-4 rounded-2xl shadow-md border border-slate-800 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
@@ -225,7 +234,6 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
             </span>
           </div>
 
-          {/* 일자 선택 셀렉트 박스 */}
           <div className="relative inline-block">
             <select
               value={selectedStatDate}
@@ -262,7 +270,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
         </div>
       </div>
 
-      {/* 3. 월간 출석부 메인 테이블 */}
+      {/* 3. 메인 월간 테이블 */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-center border-collapse">
