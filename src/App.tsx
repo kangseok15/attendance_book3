@@ -13,6 +13,7 @@ import {
   UserRole,
   TabType 
 } from './types/attendance';
+import { INITIAL_STUDENTS } from './data/initialData';
 import { 
   getRecordKey, 
   getTodayDateStr, 
@@ -91,8 +92,17 @@ export function App() {
 
   const [students, setStudents] = useState<Student[]>(() => {
     const saved = localStorage.getItem('mirae_students_backup');
-    return saved ? JSON.parse(saved) : [];
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return INITIAL_STUDENTS;
   });
+
   const [records, setRecords] = useState<Record<string, AttendanceRecord>>(() => {
     const saved = localStorage.getItem('mirae_records_backup');
     return saved ? JSON.parse(saved) : {};
@@ -224,7 +234,6 @@ export function App() {
     });
   };
 
-  // 사유 변경 핸들러
   const handleReasonChange = (studentId: string, dateStr: string, reasonText: string) => {
     if (userRole === 'teacher' || userRole === 'student') return;
 
@@ -292,7 +301,6 @@ export function App() {
     setIsClearModalOpen(false);
   };
 
-  // 선택된 날짜의 학년별/전체 출석 인원 계산
   const attendanceStats = useMemo(() => {
     const stats = { g1: 0, g2: 0, g3: 0, total: 0 };
     students.forEach(s => {
@@ -572,7 +580,7 @@ export function App() {
               </div>
             </div>
 
-            {/* 아침 / 야간 자율학습 참석 현황 위젯 */}
+            {/* 참석 현황 위젯 */}
             <div className="bg-[#111827] text-white p-4 rounded-2xl shadow-md border border-slate-800 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block animate-pulse"></span>
@@ -675,7 +683,7 @@ export function App() {
                             </div>
                           </div>
 
-                          {/* 사유 주관식 입력란 & 시간 표시 */}
+                          {/* 사유 입력 & 시간 */}
                           <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
                             <div className="relative flex items-center">
                               <MessageSquare className="w-3 h-3 absolute left-2 text-slate-400" />
@@ -705,7 +713,7 @@ export function App() {
           </div>
         )}
 
-        {/* 탭 3: 학생 명단 및 비상 연락망 */}
+        {/* 탭 3: 학생 명단 */}
         {activeTab === 'students' && (
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-800/60">
@@ -804,7 +812,7 @@ export function App() {
 
       </main>
 
-      {/* 4. 관리자 비밀번호 입력 모달 */}
+      {/* 관리자 비밀번호 모달 */}
       {isAuthModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-2xs p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-xs w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
@@ -813,10 +821,7 @@ export function App() {
                 <Lock className="w-4 h-4 text-indigo-600" />
                 관리자 인증
               </h3>
-              <button 
-                onClick={() => setIsAuthModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600"
-              >
+              <button onClick={() => setIsAuthModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -862,7 +867,7 @@ export function App() {
         </div>
       )}
 
-      {/* 5. 출결 비우기 모달 */}
+      {/* 출결 비우기 모달 */}
       {isClearModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-2xs p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
@@ -872,10 +877,7 @@ export function App() {
                 <RotateCcw className="w-5 h-5 text-rose-600" />
                 출결 데이터 비우기
               </h3>
-              <button 
-                onClick={() => setIsClearModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600"
-              >
+              <button onClick={() => setIsClearModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-4 h-4" />
               </button>
             </div>
