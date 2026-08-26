@@ -34,13 +34,25 @@ import {
   X
 } from 'lucide-react';
 
-// 관리자 접근 비밀번호 (원하시는 비밀번호로 자유롭게 변경 가능)
+// 관리자 접근 비밀번호
 const ADMIN_PASSWORD = '4706';
+
+// URL 파라미터(?role=teacher 등)에서 초기 역할 감지 함수
+const getInitialRoleFromURL = (): UserRole => {
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    const roleParam = params.get('role');
+    if (roleParam === 'teacher') return 'teacher';
+    if (roleParam === 'admin') return 'admin';
+    if (roleParam === 'student') return 'student';
+  }
+  return 'student'; // 기본값: 학생
+};
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabType>('monthly');
   const [session, setSession] = useState<SessionType>('morning');
-  const [userRole, setUserRole] = useState<UserRole>('student'); // 기본 접속 권한: 학생
+  const [userRole, setUserRole] = useState<UserRole>(getInitialRoleFromURL);
   const [year, setYear] = useState<number>(2026);
   const [month, setMonth] = useState<number>(8);
   
@@ -107,7 +119,7 @@ export function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // 역할 전환 핸들러 (관리자 전환 시 비밀번호 검증)
+  // 역할 전환 핸들러 (관리자 전환 시 비밀번호 검증 + URL 파라미터 동기화)
   const handleRoleChange = (targetRole: UserRole) => {
     if (targetRole === 'admin') {
       if (userRole === 'admin') return;
@@ -116,6 +128,14 @@ export function App() {
       setIsAuthModalOpen(true);
     } else {
       setUserRole(targetRole);
+      // 브라우저 주소창 파라미터 동기화
+      const url = new URL(window.location.href);
+      if (targetRole === 'student') {
+        url.searchParams.delete('role');
+      } else {
+        url.searchParams.set('role', targetRole);
+      }
+      window.history.replaceState({}, '', url.toString());
     }
   };
 
@@ -126,6 +146,9 @@ export function App() {
       setIsAuthModalOpen(false);
       setPasswordInput('');
       setAuthError('');
+      const url = new URL(window.location.href);
+      url.searchParams.set('role', 'admin');
+      window.history.replaceState({}, '', url.toString());
     } else {
       setAuthError('비밀번호가 올바르지 않습니다.');
     }
