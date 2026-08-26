@@ -14,8 +14,7 @@ import {
 } from '../types/attendance';
 import { 
   getRecordKey, 
-  isStudentExcluded, 
-  getStatusBadge 
+  isStudentExcluded 
 } from '../utils/attendanceHelpers';
 import { 
   Search, 
@@ -53,6 +52,28 @@ const getNextStatus = (current: AttendanceStatus): AttendanceStatus => {
   }
 };
 
+// 출결 상태 뱃지 렌더러
+const renderStatusBadge = (status: AttendanceStatus, isExcluded?: boolean) => {
+  switch (status) {
+    case 'PRESENT':
+      return <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 font-black text-xs">○</span>;
+    case 'LATE':
+      return <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-700 font-black text-xs">△</span>;
+    case 'EARLY_LEAVE':
+      return <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-purple-100 text-purple-700 font-black text-xs">∅</span>;
+    case 'OFFICIAL_ABSENT':
+      return <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-black text-xs">공</span>;
+    case 'ABSENT':
+      return <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-rose-100 text-rose-700 font-black text-xs">X</span>;
+    default:
+      return isExcluded ? (
+        <span className="inline-block w-2.5 h-0.5 bg-slate-300 rounded-full" />
+      ) : (
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700" />
+      );
+  }
+};
+
 export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
   students,
   session,
@@ -66,7 +87,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
   const [selectedGrade, setSelectedGrade] = useState<number | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   
-  // 기본 선택 날짜 (선택 일자 유지)
+  // 기본 선택 날짜
   const [selectedStatDate, setSelectedStatDate] = useState<string>(() => {
     return activeDays.find(d => d.dateStr === '2026-08-26')?.dateStr || activeDays[0]?.dateStr || '2026-08-26';
   });
@@ -333,7 +354,7 @@ export const MonthlyGridView: React.FC<MonthlyGridViewProps> = ({
                           } ${isExcluded ? 'bg-slate-100/60 dark:bg-slate-800/40' : ''}`}
                         >
                           <div className="flex flex-col items-center justify-center min-h-[30px]">
-                            {getStatusBadge(status, isExcluded)}
+                            {renderStatusBadge(status, isExcluded)}
                             {rec?.reason && (
                               <span className="text-[9px] text-slate-500 truncate max-w-[42px] block mt-0.5 font-medium" title={rec.reason}>
                                 {rec.reason}
