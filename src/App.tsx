@@ -30,16 +30,25 @@ import {
   ChevronLeft,
   ChevronRight,
   RotateCcw,
-  Share2
+  Lock,
+  X
 } from 'lucide-react';
+
+// 관리자 접근 비밀번호 (원하시는 비밀번호로 자유롭게 변경 가능)
+const ADMIN_PASSWORD = '숭신';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabType>('monthly');
   const [session, setSession] = useState<SessionType>('morning');
-  const [userRole, setUserRole] = useState<UserRole>('admin');
+  const [userRole, setUserRole] = useState<UserRole>('student'); // 기본 접속 권한: 학생
   const [year, setYear] = useState<number>(2026);
   const [month, setMonth] = useState<number>(8);
+  
+  // 모달 상태
   const [isClearModalOpen, setIsClearModalOpen] = useState<boolean>(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [passwordInput, setPasswordInput] = useState<string>('');
+  const [authError, setAuthError] = useState<string>('');
 
   // 로컬 백업 기반 안전 로딩
   const [students, setStudents] = useState<Student[]>(() => {
@@ -97,6 +106,30 @@ export function App() {
     }, 30000);
     return () => clearInterval(timer);
   }, []);
+
+  // 역할 전환 핸들러 (관리자 전환 시 비밀번호 검증)
+  const handleRoleChange = (targetRole: UserRole) => {
+    if (targetRole === 'admin') {
+      if (userRole === 'admin') return;
+      setPasswordInput('');
+      setAuthError('');
+      setIsAuthModalOpen(true);
+    } else {
+      setUserRole(targetRole);
+    }
+  };
+
+  const handleVerifyAdminPassword = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (passwordInput === ADMIN_PASSWORD) {
+      setUserRole('admin');
+      setIsAuthModalOpen(false);
+      setPasswordInput('');
+      setAuthError('');
+    } else {
+      setAuthError('비밀번호가 올바르지 않습니다.');
+    }
+  };
 
   const handleUpdateRecord = async (
     studentId: string, 
@@ -178,7 +211,7 @@ export function App() {
             </h1>
           </div>
 
-          {/* 중앙: 4개 메뉴 탭 (월간 출석부, 일별 빠른 체크, 학생 명단, 통계 및 분석) */}
+          {/* 중앙: 4개 메뉴 탭 */}
           <nav className="hidden xl:flex items-center gap-1.5 bg-slate-100/80 dark:bg-slate-800/80 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-700 text-xs font-bold">
             <button
               onClick={() => setActiveTab('monthly')}
@@ -220,10 +253,9 @@ export function App() {
 
           {/* 우측: 권한 스위치 + 스프레드시트 버튼 + 동기화 아이콘 */}
           <div className="flex items-center gap-2">
-            {/* 권한 스위치 (관리자 / 담임 교사 / 학생) */}
             <div className="inline-flex bg-slate-100/90 dark:bg-slate-800/90 p-1 rounded-xl text-3xs font-bold border border-slate-200/50">
               <button
-                onClick={() => setUserRole('admin')}
+                onClick={() => handleRoleChange('admin')}
                 className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-all ${
                   userRole === 'admin' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400'
                 }`}
@@ -232,7 +264,7 @@ export function App() {
                 관리자
               </button>
               <button
-                onClick={() => setUserRole('teacher')}
+                onClick={() => handleRoleChange('teacher')}
                 className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-all ${
                   userRole === 'teacher' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400'
                 }`}
@@ -241,7 +273,7 @@ export function App() {
                 담임 교사
               </button>
               <button
-                onClick={() => setUserRole('student')}
+                onClick={() => handleRoleChange('student')}
                 className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-all ${
                   userRole === 'student' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400'
                 }`}
@@ -251,7 +283,6 @@ export function App() {
               </button>
             </div>
 
-            {/* 초록색 구글 스프레드시트 버튼 */}
             <a
               href="https://docs.google.com/spreadsheets"
               target="_blank"
@@ -262,11 +293,10 @@ export function App() {
               스프레드시트
             </a>
 
-            {/* 새로고침 & 공유 아이콘 */}
             <button
               onClick={loadData}
               title={`구글 시트 동기화 (최근: ${lastSynced || '연결 대기'})`}
-              className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200 transition-colors"
+              className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-indigo-500' : ''}`} />
             </button>
@@ -275,11 +305,10 @@ export function App() {
         </div>
       </header>
 
-      {/* 2. 2열 서브 컨트롤 바 (세션 선택 + 월 퀵 이동 + 날짜 선택기 + 출결 비우기) */}
+      {/* 2. 2열 서브 컨트롤 바 */}
       <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xs border-b border-slate-200/80 dark:border-slate-800 px-4 sm:px-6 py-2.5">
         <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-3">
           
-          {/* 좌측: [아침 자율학습] [야간 자율학습] */}
           <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold">
             <button
               onClick={() => setSession('morning')}
@@ -299,10 +328,7 @@ export function App() {
             </button>
           </div>
 
-          {/* 우측: 8월~12월 탭 + 달력 선택기 + 출결 비우기 */}
           <div className="flex flex-wrap items-center gap-3">
-            
-            {/* 월 퀵 선택 알약 버튼 */}
             <div className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-3xs font-bold">
               {[8, 9, 10, 11, 12].map(m => (
                 <button
@@ -317,7 +343,6 @@ export function App() {
               ))}
             </div>
 
-            {/* 달력 날짜 피커 박스 */}
             <div className="flex items-center bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
               <button onClick={() => setMonth(prev => Math.max(1, prev - 1))} className="p-1 hover:text-indigo-600">
                 <ChevronLeft className="w-3.5 h-3.5" />
@@ -331,7 +356,6 @@ export function App() {
               </button>
             </div>
 
-            {/* 빨간색 출결 비우기 버튼 */}
             {userRole === 'admin' && (
               <button
                 onClick={() => setIsClearModalOpen(true)}
@@ -341,7 +365,6 @@ export function App() {
                 출결 비우기
               </button>
             )}
-
           </div>
 
         </div>
@@ -379,7 +402,65 @@ export function App() {
         )}
       </main>
 
-      {/* 4. 출결 비우기 확인 모달 */}
+      {/* 4. 관리자 비밀번호 입력 모달 */}
+      {isAuthModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-2xs p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-xs w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+            <div className="flex justify-between items-center border-b pb-3 border-slate-100 dark:border-slate-800">
+              <h3 className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-1.5">
+                <Lock className="w-4 h-4 text-indigo-600" />
+                관리자 인증
+              </h3>
+              <button 
+                onClick={() => setIsAuthModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleVerifyAdminPassword} className="space-y-3">
+              <div>
+                <label className="text-3xs font-bold text-slate-500 dark:text-slate-400 mb-1 block">
+                  관리자 비밀번호를 입력해 주세요
+                </label>
+                <input
+                  type="password"
+                  autoFocus
+                  placeholder="비밀번호 입력..."
+                  value={passwordInput}
+                  onChange={e => {
+                    setPasswordInput(e.target.value);
+                    setAuthError('');
+                  }}
+                  className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 text-slate-800 dark:text-slate-100"
+                />
+                {authError && (
+                  <p className="text-3xs text-rose-500 font-bold mt-1">{authError}</p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsAuthModalOpen(false)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200"
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-xs"
+                >
+                  확인
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 5. 출결 비우기 확인 모달 */}
       {isClearModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-2xs p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
