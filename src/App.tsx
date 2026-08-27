@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Student, 
   SessionType, 
@@ -16,7 +16,6 @@ import {
 import { INITIAL_STUDENTS } from './data/initialData';
 import { 
   getRecordKey, 
-  getTodayDateStr, 
   isStudentExcluded 
 } from './utils/attendanceHelpers';
 import { fetchFromGoogleSheets, syncToGoogleSheets } from './utils/googleSync';
@@ -79,7 +78,7 @@ export function App() {
   const [userRole, setUserRole] = useState<UserRole>(getInitialRoleFromURL);
   const [year, setYear] = useState<number>(2026);
   const [month, setMonth] = useState<number>(8);
-  const [selectedDateStr, setSelectedDateStr] = useState<string>('2026-08-27');
+  const [selectedDateStr, setSelectedDateStr] = useState<string>('2026-08-28');
   
   const [studentSearch, setStudentSearch] = useState<string>('');
   const [quickGradeFilter, setQuickGradeFilter] = useState<number | 'all'>('all');
@@ -108,6 +107,11 @@ export function App() {
     return saved ? JSON.parse(saved) : {};
   });
 
+  const recordsRef = useRef<Record<string, AttendanceRecord>>(records);
+  useEffect(() => {
+    recordsRef.current = records;
+  }, [records]);
+
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSynced, setLastSynced] = useState<string>('');
 
@@ -125,6 +129,7 @@ export function App() {
     ];
   }, []);
 
+  // 안전한 병합 로드 (로컬 최신 데이터 덮어쓰기 방어)
   const loadData = async () => {
     setIsSyncing(true);
     const data = await fetchFromGoogleSheets();
@@ -135,7 +140,15 @@ export function App() {
       }
       if (data.records) {
         setRecords(prev => {
-          const merged = { ...prev, ...data.records };
+          const merged = { ...data.records };
+          // 서버에서 가져온 구버전이 로컬의 최신 입력을 덮어쓰지 않도록 타임스탬프 기준 병합
+          Object.keys(prev).forEach(k => {
+            const localRec = prev[k];
+            const serverRec = data.records[k];
+            if (!serverRec || (localRec.updatedAt && serverRec.updatedAt && new Date(localRec.updatedAt) > new Date(serverRec.updatedAt))) {
+              merged[k] = localRec;
+            }
+          });
           localStorage.setItem('mirae_records_backup', JSON.stringify(merged));
           return merged;
         });
@@ -149,7 +162,7 @@ export function App() {
     loadData();
     const timer = setInterval(() => {
       loadData();
-    }, 15000);
+    }, 20000);
     return () => clearInterval(timer);
   }, []);
 
@@ -189,7 +202,7 @@ export function App() {
     }
   };
 
-  // 출결 수정 및 저장 (학생과 관리자 모두 입력 및 시트 동기화 가능)
+  // 출결 수정 및 저장 (학생과 관리자 모두 실시간 시트 동기화)
   const handleUpdateRecord = async (
     studentId: string, 
     dateStr: string, 
@@ -197,7 +210,6 @@ export function App() {
     reason?: string,
     checkInTime?: string
   ) => {
-    // 🔒 오직 '담임 교사 모드(teacher)'만 조회 전용으로 차단
     if (userRole === 'teacher') {
       alert('담임 교사 모드는 [조회 전용]입니다. 출결 수정은 태블릿 또는 관리자 모드에서 진행해 주세요.');
       return;
@@ -211,25 +223,23 @@ export function App() {
       session,
       dateStr,
       status,
-      reason: reason !== undefined ? reason : (records[key]?.reason || ''),
-      checkInTime: records[key]?.checkInTime || nowTime,
+      reason: reason !== undefined ? reason : (recordsRef.current[key]?.reason || ''),
+      checkInTime: recordsRef.current[key]?.checkInTime || nowTime,
       updatedAt: new Date().toISOString(),
     };
 
-    setRecords(prev => {
-      const nextRecords = {
-        ...prev,
-        [key]: singleRecord
-      };
-      localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
-      return nextRecords;
-    });
+    const nextRecords = {
+      ...recordsRef.current,
+      [key]: singleRecord
+    };
 
-    // 태블릿(학생) 및 관리자 모두 시트로 안전하게 실시간 전송
+    setRecords(nextRecords);
+    localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
+
     syncToGoogleSheets({ 
       recordKey: key, 
       record: singleRecord,
-      records: { ...records, [key]: singleRecord } 
+      records: nextRecords 
     });
   };
 
@@ -237,36 +247,39 @@ export function App() {
     if (userRole === 'teacher') return;
 
     const key = `${studentId}_${session}_${dateStr}`;
-    const prevRec = records[key];
+    const prevRec = recordsRef.current[key];
     const currentStatus = prevRec?.status || 'NONE';
 
     handleUpdateRecord(studentId, dateStr, currentStatus, reasonText, prevRec?.checkInTime);
   };
 
+  // 일괄 결석 처리: 음영(학원/미참여일) 처리된 학생은 제외
   const handleFillDayAbsent = (dateStr: string, gradeFilter?: number) => {
     if (userRole !== 'admin') return;
 
-    setRecords(prev => {
-      const nextRecords = { ...prev };
-      students.forEach(st => {
-        if (!st.active) return;
-        if (gradeFilter !== undefined && st.grade !== gradeFilter) return;
+    const nextRecords = { ...recordsRef.current };
+    students.forEach(st => {
+      if (!st.active) return;
+      if (gradeFilter !== undefined && st.grade !== gradeFilter) return;
 
-        const key = `${st.id}_${session}_${dateStr}`;
-        if (!nextRecords[key] || nextRecords[key].status === 'NONE') {
-          nextRecords[key] = {
-            studentId: st.id,
-            session,
-            dateStr,
-            status: 'ABSENT',
-            updatedAt: new Date().toISOString(),
-          };
-        }
-      });
-      localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
-      syncToGoogleSheets({ records: nextRecords });
-      return nextRecords;
+      // 💡 음영 학생(학원 요일 등)은 일괄 X 대상에서 제외
+      if (isStudentExcluded(st, session, dateStr)) return;
+
+      const key = `${st.id}_${session}_${dateStr}`;
+      if (!nextRecords[key] || nextRecords[key].status === 'NONE') {
+        nextRecords[key] = {
+          studentId: st.id,
+          session,
+          dateStr,
+          status: 'ABSENT',
+          updatedAt: new Date().toISOString(),
+        };
+      }
     });
+
+    setRecords(nextRecords);
+    localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
+    syncToGoogleSheets({ records: nextRecords });
   };
 
   const handleUpdateStudents = (updatedStudents: Student[]) => {
@@ -280,23 +293,22 @@ export function App() {
   const handleExecuteClear = () => {
     if (userRole !== 'admin') return;
 
-    setRecords(prev => {
-      const nextRecords = { ...prev };
-      Object.keys(nextRecords).forEach(k => {
-        if (clearTargetDate === 'ALL') {
-          if (k.includes(`_${session}_`)) {
-            delete nextRecords[k];
-          }
-        } else {
-          if (k.includes(`_${session}_${clearTargetDate}`)) {
-            delete nextRecords[k];
-          }
+    const nextRecords = { ...recordsRef.current };
+    Object.keys(nextRecords).forEach(k => {
+      if (clearTargetDate === 'ALL') {
+        if (k.includes(`_${session}_`)) {
+          delete nextRecords[k];
         }
-      });
-      localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
-      syncToGoogleSheets({ records: nextRecords });
-      return nextRecords;
+      } else {
+        if (k.includes(`_${session}_${clearTargetDate}`)) {
+          delete nextRecords[k];
+        }
+      }
     });
+
+    setRecords(nextRecords);
+    localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
+    syncToGoogleSheets({ records: nextRecords });
     setIsClearModalOpen(false);
   };
 
@@ -316,7 +328,7 @@ export function App() {
     return stats;
   }, [students, records, session, selectedDateStr]);
 
-  const selectedDayInfo = activeDays.find(d => d.dateStr === selectedDateStr) || { dayNum: 27, dayOfWeek: '목' };
+  const selectedDayInfo = activeDays.find(d => d.dateStr === selectedDateStr) || { dayNum: 28, dayOfWeek: '금' };
 
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
