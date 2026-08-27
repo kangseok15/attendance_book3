@@ -112,6 +112,10 @@ export function App() {
     recordsRef.current = records;
   }, [records]);
 
+  // 최근 로컬 수정 시간 기록 (서버 구데이터 덮어쓰기 방지용)
+  const lastLocalEditTimeRef = useRef<number>(0);
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSynced, setLastSynced] = useState<string>('');
 
@@ -129,8 +133,13 @@ export function App() {
     ];
   }, []);
 
-  // 안전한 병합 로드 (로컬 최신 데이터 덮어쓰기 방어)
-  const loadData = async () => {
+  // 안전한 서버 데이터 동기화
+  const loadData = async (force: boolean = false) => {
+    // 사용자가 최근 10초 이내에 클릭한 적이 있으면 자동 동기화로 인한 덮어쓰기를 건너뜀
+    if (!force && Date.now() - lastLocalEditTimeRef.current < 10000) {
+      return;
+    }
+
     setIsSyncing(true);
     const data = await fetchFromGoogleSheets();
     if (data) {
@@ -140,13 +149,16 @@ export function App() {
       }
       if (data.records) {
         setRecords(prev => {
-          const merged = { ...data.records };
-          // 서버에서 가져온 구버전이 로컬의 최신 입력을 덮어쓰지 않도록 타임스탬프 기준 병합
-          Object.keys(prev).forEach(k => {
-            const localRec = prev[k];
-            const serverRec = data.records[k];
-            if (!serverRec || (localRec.updatedAt && serverRec.updatedAt && new Date(localRec.updatedAt) > new Date(serverRec.updatedAt))) {
-              merged[k] = localRec;
+          const merged = { ...prev };
+          Object.keys(data.records).forEach(key => {
+            const serverRec = data.records[key];
+            const localRec = prev[key];
+
+            // 로컬에 없거나 서버 데이터가 더 최신일 때만 반영
+            if (!localRec) {
+              merged[key] = serverRec;
+            } else if (!localRec.updatedAt || (serverRec.updatedAt && new Date(serverRec.updatedAt) >= new Date(localRec.updatedAt))) {
+              merged[key] = serverRec;
             }
           });
           localStorage.setItem('mirae_records_backup', JSON.stringify(merged));
@@ -159,10 +171,10 @@ export function App() {
   };
 
   useEffect(() => {
-    loadData();
+    loadData(true);
     const timer = setInterval(() => {
-      loadData();
-    }, 20000);
+      loadData(false);
+    }, 25000);
     return () => clearInterval(timer);
   }, []);
 
@@ -202,7 +214,7 @@ export function App() {
     }
   };
 
-  // 출결 수정 및 저장 (학생과 관리자 모두 실시간 시트 동기화)
+  // 출결 수정 핸들러 (연속 클릭 시 데이터 유실 차단)
   const handleUpdateRecord = async (
     studentId: string, 
     dateStr: string, 
@@ -215,6 +227,7 @@ export function App() {
       return;
     }
 
+    lastLocalEditTimeRef.current = Date.now();
     const key = `${studentId}_${session}_${dateStr}`;
     const nowTime = checkInTime || `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`;
     
@@ -233,14 +246,23 @@ export function App() {
       [key]: singleRecord
     };
 
+    // 1. 화면 및 로컬 즉시 반영
     setRecords(nextRecords);
     localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
 
+    // 2. 단일 레코드 즉시 시트 전송
     syncToGoogleSheets({ 
       recordKey: key, 
-      record: singleRecord,
-      records: nextRecords 
+      record: singleRecord 
     });
+
+    // 3. 연속 클릭 완료 후 전체 데이터 안전 동기화 (디바운스 1.5초)
+    if (syncTimeoutRef.current) {
+      clearTimeout(syncTimeoutRef.current);
+    }
+    syncTimeoutRef.current = setTimeout(() => {
+      syncToGoogleSheets({ records: recordsRef.current });
+    }, 1500);
   };
 
   const handleReasonChange = (studentId: string, dateStr: string, reasonText: string) => {
@@ -253,16 +275,14 @@ export function App() {
     handleUpdateRecord(studentId, dateStr, currentStatus, reasonText, prevRec?.checkInTime);
   };
 
-  // 일괄 결석 처리: 음영(학원/미참여일) 처리된 학생은 제외
   const handleFillDayAbsent = (dateStr: string, gradeFilter?: number) => {
     if (userRole !== 'admin') return;
 
+    lastLocalEditTimeRef.current = Date.now();
     const nextRecords = { ...recordsRef.current };
     students.forEach(st => {
       if (!st.active) return;
       if (gradeFilter !== undefined && st.grade !== gradeFilter) return;
-
-      // 💡 음영 학생(학원 요일 등)은 일괄 X 대상에서 제외
       if (isStudentExcluded(st, session, dateStr)) return;
 
       const key = `${st.id}_${session}_${dateStr}`;
@@ -293,6 +313,7 @@ export function App() {
   const handleExecuteClear = () => {
     if (userRole !== 'admin') return;
 
+    lastLocalEditTimeRef.current = Date.now();
     const nextRecords = { ...recordsRef.current };
     Object.keys(nextRecords).forEach(k => {
       if (clearTargetDate === 'ALL') {
@@ -435,8 +456,8 @@ export function App() {
             </a>
 
             <button
-              onClick={loadData}
-              title={`구글 시트 동기화 (최근: ${lastSynced || '연결 대기'})`}
+              onClick={() => loadData(true)}
+              title={`구글 시트 수동 동기화 (최근: ${lastSynced || '연결 대기'})`}
               className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-indigo-500' : ''}`} />
@@ -620,7 +641,7 @@ export function App() {
               </div>
             </div>
 
-            {/* 학년별 구분 리스트 (3학년 -> 2학년 -> 1학년) */}
+            {/* 학년별 구분 리스트 */}
             {([3, 2, 1] as const).map(targetGrade => {
               if (quickGradeFilter !== 'all' && quickGradeFilter !== targetGrade) return null;
 
