@@ -95,9 +95,7 @@ export function App() {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch (e) {
-        console.error(e);
-      }
+      } catch (e) {}
     }
     return INITIAL_STUDENTS;
   });
@@ -129,33 +127,19 @@ export function App() {
     ];
   }, []);
 
-  // 타임스탬프 기반 양방향 실시간 동기화 병합 로직
+  // 양방향 전체 기기 실시간 동기화 함수
   const loadData = async () => {
     setIsSyncing(true);
     const data = await fetchFromGoogleSheets();
     if (data) {
-      if (data.students && data.students.length > 0) {
+      if (data.students && Array.isArray(data.students) && data.students.length > 0) {
         setStudents(data.students);
         localStorage.setItem('mirae_students_backup', JSON.stringify(data.students));
       }
       if (data.records) {
         setRecords(prev => {
-          const merged: Record<string, AttendanceRecord> = { ...data.records };
-
-          // 로컬 기록 중 서버보다 더 최신으로 방금 수정한 기록만 덮어쓰기 유지
-          Object.keys(prev).forEach(key => {
-            const localRec = prev[key];
-            const serverRec = data.records?.[key];
-
-            if (!serverRec) {
-              merged[key] = localRec;
-            } else if (localRec.updatedAt && serverRec.updatedAt) {
-              if (new Date(localRec.updatedAt).getTime() > new Date(serverRec.updatedAt).getTime()) {
-                merged[key] = localRec;
-              }
-            }
-          });
-
+          // 서버에서 가져온 최신 기록과 로컬 기록 병합
+          const merged = { ...prev, ...data.records };
           localStorage.setItem('mirae_records_backup', JSON.stringify(merged));
           return merged;
         });
@@ -165,12 +149,12 @@ export function App() {
     setIsSyncing(false);
   };
 
-  // 15초마다 주기적 자동 동기화
+  // 10초마다 자동 폴링 동기화
   useEffect(() => {
     loadData();
     const timer = setInterval(() => {
       loadData();
-    }, 15000);
+    }, 10000);
     return () => clearInterval(timer);
   }, []);
 
@@ -210,7 +194,7 @@ export function App() {
     }
   };
 
-  // 출결 수정 핸들러 (학생/관리자 모두 실시간 전송)
+  // 출결 수정 핸들러 (학생/관리자 입력 즉시 시트 반영)
   const handleUpdateRecord = (
     studentId: string, 
     dateStr: string, 
@@ -261,6 +245,7 @@ export function App() {
     handleUpdateRecord(studentId, dateStr, currentStatus, reasonText, prevRec?.checkInTime);
   };
 
+  // 날짜 일괄 결석 처리 (학원 음영 학생 자동 제외)
   const handleFillDayAbsent = (dateStr: string, gradeFilter?: number) => {
     if (userRole !== 'admin') return;
 
@@ -338,7 +323,7 @@ export function App() {
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
       
-      {/* 1. 최상단 네비게이션 바 */}
+      {/* 최상단 헤더 */}
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 sticky top-0 z-40 shadow-2xs">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           
@@ -451,7 +436,7 @@ export function App() {
         </div>
       </header>
 
-      {/* 2. 서브 컨트롤 바 */}
+      {/* 서브 컨트롤 바 */}
       <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xs border-b border-slate-200/80 dark:border-slate-800 px-4 sm:px-6 py-2.5">
         <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-3">
           
@@ -519,10 +504,9 @@ export function App() {
         </div>
       </div>
 
-      {/* 3. 메인 콘텐츠 뷰 */}
+      {/* 메인 뷰 */}
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-5 flex-1 w-full space-y-6">
         
-        {/* 탭 1: 월간 출석부 */}
         {activeTab === 'monthly' && (
           <MonthlyGridView
             students={students}
@@ -543,11 +527,8 @@ export function App() {
           />
         )}
 
-        {/* 탭 2: 일별 빠른 체크 */}
         {activeTab === 'quick' && userRole !== 'teacher' && (
           <div className="space-y-4">
-            
-            {/* 상단 컨트롤 바 */}
             <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/50 rounded-xl text-indigo-600">
@@ -625,7 +606,6 @@ export function App() {
               </div>
             </div>
 
-            {/* 학년별 구분 리스트 */}
             {([3, 2, 1] as const).map(targetGrade => {
               if (quickGradeFilter !== 'all' && quickGradeFilter !== targetGrade) return null;
 
@@ -699,7 +679,6 @@ export function App() {
                             </div>
                           </div>
 
-                          {/* 사유 입력 & 시간 */}
                           <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
                             <div className="relative flex items-center">
                               <MessageSquare className="w-3 h-3 absolute left-2 text-slate-400" />
@@ -729,7 +708,6 @@ export function App() {
           </div>
         )}
 
-        {/* 탭 3: 학생 명단 */}
         {activeTab === 'students' && (
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-800/60">
@@ -813,7 +791,6 @@ export function App() {
           </div>
         )}
 
-        {/* 탭 4: 통계 및 분석 */}
         {activeTab === 'analytics' && (
           <AnalyticsView
             students={students}
@@ -887,7 +864,6 @@ export function App() {
       {isClearModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-2xs p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
-            
             <div className="flex items-center justify-between border-b pb-3 border-slate-100 dark:border-slate-800">
               <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
                 <RotateCcw className="w-5 h-5 text-rose-600" />
@@ -941,7 +917,6 @@ export function App() {
                 비우기 실행
               </button>
             </div>
-
           </div>
         </div>
       )}
