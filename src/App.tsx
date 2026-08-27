@@ -112,10 +112,6 @@ export function App() {
     recordsRef.current = records;
   }, [records]);
 
-  // 최근 로컬 수정 시간 기록 (서버 구데이터 덮어쓰기 방지용)
-  const lastLocalEditTimeRef = useRef<number>(0);
-  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSynced, setLastSynced] = useState<string>('');
 
@@ -133,13 +129,8 @@ export function App() {
     ];
   }, []);
 
-  // 안전한 서버 데이터 동기화
-  const loadData = async (force: boolean = false) => {
-    // 사용자가 최근 10초 이내에 클릭한 적이 있으면 자동 동기화로 인한 덮어쓰기를 건너뜀
-    if (!force && Date.now() - lastLocalEditTimeRef.current < 10000) {
-      return;
-    }
-
+  // 100% 안전한 병합 로직: 로컬에 존재하는 데이터는 서버의 오래된 값에 절대 덮어씌워지지 않음
+  const loadData = async () => {
     setIsSyncing(true);
     const data = await fetchFromGoogleSheets();
     if (data) {
@@ -149,18 +140,8 @@ export function App() {
       }
       if (data.records) {
         setRecords(prev => {
-          const merged = { ...prev };
-          Object.keys(data.records).forEach(key => {
-            const serverRec = data.records[key];
-            const localRec = prev[key];
-
-            // 로컬에 없거나 서버 데이터가 더 최신일 때만 반영
-            if (!localRec) {
-              merged[key] = serverRec;
-            } else if (!localRec.updatedAt || (serverRec.updatedAt && new Date(serverRec.updatedAt) >= new Date(localRec.updatedAt))) {
-              merged[key] = serverRec;
-            }
-          });
+          // 서버 데이터를 기본으로 깔고, 내 로컬의 최신 기록을 그 위에 덮어씀 (로컬 최우선)
+          const merged = { ...data.records, ...prev };
           localStorage.setItem('mirae_records_backup', JSON.stringify(merged));
           return merged;
         });
@@ -170,11 +151,12 @@ export function App() {
     setIsSyncing(false);
   };
 
+  // 초기 1회 로드 및 30초 주기 동기화
   useEffect(() => {
-    loadData(true);
+    loadData();
     const timer = setInterval(() => {
-      loadData(false);
-    }, 25000);
+      loadData();
+    }, 30000);
     return () => clearInterval(timer);
   }, []);
 
@@ -214,8 +196,8 @@ export function App() {
     }
   };
 
-  // 출결 수정 핸들러 (연속 클릭 시 데이터 유실 차단)
-  const handleUpdateRecord = async (
+  // 출결 수정 핸들러 (즉시 로컬 확정 + 백그라운드 안전 큐 전송)
+  const handleUpdateRecord = (
     studentId: string, 
     dateStr: string, 
     status: AttendanceStatus, 
@@ -227,7 +209,6 @@ export function App() {
       return;
     }
 
-    lastLocalEditTimeRef.current = Date.now();
     const key = `${studentId}_${session}_${dateStr}`;
     const nowTime = checkInTime || `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`;
     
@@ -246,23 +227,16 @@ export function App() {
       [key]: singleRecord
     };
 
-    // 1. 화면 및 로컬 즉시 반영
+    // 1. 로컬 상태 즉시 확정 (화면이 깜빡이거나 롤백되지 않음)
     setRecords(nextRecords);
     localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
 
-    // 2. 단일 레코드 즉시 시트 전송
+    // 2. 안전 전송 큐로 구글 시트에 전송
     syncToGoogleSheets({ 
       recordKey: key, 
-      record: singleRecord 
+      record: singleRecord,
+      records: nextRecords 
     });
-
-    // 3. 연속 클릭 완료 후 전체 데이터 안전 동기화 (디바운스 1.5초)
-    if (syncTimeoutRef.current) {
-      clearTimeout(syncTimeoutRef.current);
-    }
-    syncTimeoutRef.current = setTimeout(() => {
-      syncToGoogleSheets({ records: recordsRef.current });
-    }, 1500);
   };
 
   const handleReasonChange = (studentId: string, dateStr: string, reasonText: string) => {
@@ -278,7 +252,6 @@ export function App() {
   const handleFillDayAbsent = (dateStr: string, gradeFilter?: number) => {
     if (userRole !== 'admin') return;
 
-    lastLocalEditTimeRef.current = Date.now();
     const nextRecords = { ...recordsRef.current };
     students.forEach(st => {
       if (!st.active) return;
@@ -313,7 +286,6 @@ export function App() {
   const handleExecuteClear = () => {
     if (userRole !== 'admin') return;
 
-    lastLocalEditTimeRef.current = Date.now();
     const nextRecords = { ...recordsRef.current };
     Object.keys(nextRecords).forEach(k => {
       if (clearTargetDate === 'ALL') {
@@ -456,8 +428,8 @@ export function App() {
             </a>
 
             <button
-              onClick={() => loadData(true)}
-              title={`구글 시트 수동 동기화 (최근: ${lastSynced || '연결 대기'})`}
+              onClick={loadData}
+              title={`구글 시트 동기화 (최근: ${lastSynced || '연결 대기'})`}
               className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-indigo-500' : ''}`} />
