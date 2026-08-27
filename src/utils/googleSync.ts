@@ -6,7 +6,7 @@
 import { Student, AttendanceRecord } from '../types/attendance';
 
 // ⚠️ 1단계에서 새로 복사한 웹 앱 URL을 여기에 붙여넣어 주세요!
-export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx7xxOb7cKRTGSwcav1NDsWvlQ-OWqhQSD1S6H5V84yiZtYt7VH-f8wEmr3pA30gE_r/exec';
+export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwjSK4tikaVt5DICqLnk2apCpa1iAxfhvjijyTs4h8PECrZfRo_LjkC34iY1JEYcT5wmg/exec';
 
 export const syncToGoogleSheets = async (data: {
   students?: Student[];
