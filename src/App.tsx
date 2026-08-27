@@ -129,7 +129,7 @@ export function App() {
     ];
   }, []);
 
-  // 100% 안전한 병합 로직: 로컬에 존재하는 데이터는 서버의 오래된 값에 절대 덮어씌워지지 않음
+  // 타임스탬프 기반 양방향 실시간 동기화 병합 로직
   const loadData = async () => {
     setIsSyncing(true);
     const data = await fetchFromGoogleSheets();
@@ -140,8 +140,22 @@ export function App() {
       }
       if (data.records) {
         setRecords(prev => {
-          // 서버 데이터를 기본으로 깔고, 내 로컬의 최신 기록을 그 위에 덮어씀 (로컬 최우선)
-          const merged = { ...data.records, ...prev };
+          const merged: Record<string, AttendanceRecord> = { ...data.records };
+
+          // 로컬 기록 중 서버보다 더 최신으로 방금 수정한 기록만 덮어쓰기 유지
+          Object.keys(prev).forEach(key => {
+            const localRec = prev[key];
+            const serverRec = data.records?.[key];
+
+            if (!serverRec) {
+              merged[key] = localRec;
+            } else if (localRec.updatedAt && serverRec.updatedAt) {
+              if (new Date(localRec.updatedAt).getTime() > new Date(serverRec.updatedAt).getTime()) {
+                merged[key] = localRec;
+              }
+            }
+          });
+
           localStorage.setItem('mirae_records_backup', JSON.stringify(merged));
           return merged;
         });
@@ -151,12 +165,12 @@ export function App() {
     setIsSyncing(false);
   };
 
-  // 초기 1회 로드 및 30초 주기 동기화
+  // 15초마다 주기적 자동 동기화
   useEffect(() => {
     loadData();
     const timer = setInterval(() => {
       loadData();
-    }, 30000);
+    }, 15000);
     return () => clearInterval(timer);
   }, []);
 
@@ -196,7 +210,7 @@ export function App() {
     }
   };
 
-  // 출결 수정 핸들러 (즉시 로컬 확정 + 백그라운드 안전 큐 전송)
+  // 출결 수정 핸들러 (학생/관리자 모두 실시간 전송)
   const handleUpdateRecord = (
     studentId: string, 
     dateStr: string, 
@@ -227,11 +241,9 @@ export function App() {
       [key]: singleRecord
     };
 
-    // 1. 로컬 상태 즉시 확정 (화면이 깜빡이거나 롤백되지 않음)
     setRecords(nextRecords);
     localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
 
-    // 2. 안전 전송 큐로 구글 시트에 전송
     syncToGoogleSheets({ 
       recordKey: key, 
       record: singleRecord,
