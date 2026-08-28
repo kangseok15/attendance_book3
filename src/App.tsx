@@ -90,7 +90,7 @@ export function App() {
   const [authError, setAuthError] = useState<string>('');
 
   const [students, setStudents] = useState<Student[]>(() => {
-    const saved = localStorage.getItem('mirae_students_backup');
+    const saved = localStorage.getItem('mirae_students_backup') || localStorage.getItem('mirae_students');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -101,7 +101,7 @@ export function App() {
   });
 
   const [records, setRecords] = useState<Record<string, AttendanceRecord>>(() => {
-    const saved = localStorage.getItem('mirae_records_backup');
+    const saved = localStorage.getItem('mirae_records_backup') || localStorage.getItem('mirae_records');
     return saved ? JSON.parse(saved) : {};
   });
 
@@ -127,37 +127,39 @@ export function App() {
     ];
   }, []);
 
-  // 🔄 구글 시트 최신 데이터를 그대로 읽어오는 자동 동기화 함수
+  // 🔄 [핵심] 구글 시트 데이터를 무조건 화면의 최우선 기준으로 갱신하는 자동 동기화 함수
   const loadData = async () => {
     setIsSyncing(true);
     try {
       const data = await fetchFromGoogleSheets();
-      if (data) {
+      if (data && data.records && Object.keys(data.records).length > 0) {
+        // 1) 로컬 캐시 덮어쓰기
+        const recStr = JSON.stringify(data.records);
+        localStorage.setItem('mirae_records_backup', recStr);
+        localStorage.setItem('mirae_records', recStr);
+        localStorage.setItem('mirae_attendance_records', recStr);
+
+        // 2) 리액트 상태 즉시 갱신 (화면 렌더링 강제 실행)
+        setRecords(data.records);
+
         if (data.students && Array.isArray(data.students) && data.students.length > 0) {
+          const stStr = JSON.stringify(data.students);
+          localStorage.setItem('mirae_students_backup', stStr);
+          localStorage.setItem('mirae_students', stStr);
+          localStorage.setItem('mirae_attendance_students', stStr);
           setStudents(data.students);
-          localStorage.setItem('mirae_students_backup', JSON.stringify(data.students));
         }
-        if (data.records && Object.keys(data.records).length > 0) {
-          setRecords(prev => {
-            const prevStr = JSON.stringify(prev);
-            const nextStr = JSON.stringify(data.records);
-            if (prevStr !== nextStr) {
-              localStorage.setItem('mirae_records_backup', nextStr);
-              return data.records!;
-            }
-            return prev;
-          });
-        }
+
         setLastSynced(new Date().toLocaleTimeString());
       }
     } catch (err) {
-      console.warn('동기화 대기 중...', err);
+      console.warn('구글 시트 자동 동기화 대기 중...', err);
     } finally {
       setIsSyncing(false);
     }
   };
 
-  // 10초마다 백그라운드 자동 동기화
+  // 10초마다 백그라운드 자동 동기화 (모든 담임 PC 및 태블릿 실시간 동기화)
   useEffect(() => {
     loadData();
     const timer = setInterval(() => {
@@ -202,7 +204,7 @@ export function App() {
     }
   };
 
-  // 출결 수정 핸들러 (수정 즉시 시트 반영)
+  // 출결 수정 핸들러 (수정 즉시 구글 시트로 전송)
   const handleUpdateRecord = (
     studentId: string, 
     dateStr: string, 
@@ -235,6 +237,7 @@ export function App() {
 
     setRecords(nextRecords);
     localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
+    localStorage.setItem('mirae_records', JSON.stringify(nextRecords));
 
     syncToGoogleSheets({ 
       recordKey: key, 
@@ -277,6 +280,7 @@ export function App() {
 
     setRecords(nextRecords);
     localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
+    localStorage.setItem('mirae_records', JSON.stringify(nextRecords));
     syncToGoogleSheets({ records: nextRecords });
   };
 
@@ -285,6 +289,7 @@ export function App() {
 
     setStudents(updatedStudents);
     localStorage.setItem('mirae_students_backup', JSON.stringify(updatedStudents));
+    localStorage.setItem('mirae_students', JSON.stringify(updatedStudents));
     syncToGoogleSheets({ students: updatedStudents });
   };
 
@@ -306,6 +311,7 @@ export function App() {
 
     setRecords(nextRecords);
     localStorage.setItem('mirae_records_backup', JSON.stringify(nextRecords));
+    localStorage.setItem('mirae_records', JSON.stringify(nextRecords));
     syncToGoogleSheets({ records: nextRecords });
     setIsClearModalOpen(false);
   };
