@@ -20,25 +20,25 @@ export const syncToGoogleSheets = async (data: {
       body: `data=${encodeURIComponent(payloadStr)}`,
     });
   } catch (err) {
-    console.warn('동기화 실패:', err);
+    console.warn('동기화 전송 실패:', err);
   }
 };
 
-// JSONP 방식으로 CORS를 완벽 우회하여 구글 시트 데이터 로드
+// 🔄 JSONP 방식으로 CORS를 완벽 우회하여 구글 시트 데이터 로드
 export const fetchFromGoogleSheets = async (): Promise<{
   students?: Student[];
   records?: Record<string, AttendanceRecord>;
   updatedAt?: string;
 } | null> => {
   return new Promise((resolve) => {
-    const callbackName = 'googleSyncCallback_' + Math.round(100000 * Math.random());
+    const callbackName = 'googleSyncCallback_' + Math.round(1000000 * Math.random());
     const script = document.createElement('script');
     
-    // 5초 타임아웃 설정
+    // 6초 타임아웃
     const timeoutId = setTimeout(() => {
       cleanup();
       resolve(null);
-    }, 5000);
+    }, 6000);
 
     const cleanup = () => {
       delete (window as any)[callbackName];
