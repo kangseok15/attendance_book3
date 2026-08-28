@@ -1,6 +1,5 @@
 import { Student, AttendanceRecord } from '../types/attendance';
 
-// 👇 여기에 복사한 '개인 계정 웹 앱 URL'을 정확히 붙여넣습니다.
 export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwjSK4tikaVt5DICqLnk2apCpa1iAxfhvjijyTs4h8PECrZfRo_LjkC34iY1JEYcT5wmg/exec';
 
 export const syncToGoogleSheets = async (data: {
@@ -25,7 +24,7 @@ export const syncToGoogleSheets = async (data: {
   }
 };
 
-// 🔄 JSONP 방식으로 CORS를 완벽 우회하여 구글 시트 데이터 로드
+// 🔄 실시간 자동 동기화를 위한 JSONP 로더
 export const fetchFromGoogleSheets = async (): Promise<{
   students?: Student[];
   records?: Record<string, AttendanceRecord>;
@@ -38,7 +37,7 @@ export const fetchFromGoogleSheets = async (): Promise<{
     const timeoutId = setTimeout(() => {
       cleanup();
       resolve(null);
-    }, 6000);
+    }, 5000);
 
     const cleanup = () => {
       delete (window as any)[callbackName];
