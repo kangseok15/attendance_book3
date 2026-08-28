@@ -1,11 +1,5 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { Student, AttendanceRecord } from '../types/attendance';
 
-// ⚠️ 1단계에서 새로 복사한 웹 앱 URL을 여기에 붙여넣어 주세요!
 export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwjSK4tikaVt5DICqLnk2apCpa1iAxfhvjijyTs4h8PECrZfRo_LjkC34iY1JEYcT5wmg/exec';
 
 export const syncToGoogleSheets = async (data: {
@@ -26,27 +20,45 @@ export const syncToGoogleSheets = async (data: {
       body: `data=${encodeURIComponent(payloadStr)}`,
     });
   } catch (err) {
-    try {
-      const getUrl = `${GOOGLE_SCRIPT_URL}?action=sync&data=${encodeURIComponent(payloadStr)}&_t=${Date.now()}`;
-      const img = new Image();
-      img.src = getUrl;
-    } catch (e) {
-      console.warn('동기화 실패:', e);
-    }
+    console.warn('동기화 실패:', err);
   }
 };
 
+// JSONP 방식으로 CORS를 완벽 우회하여 구글 시트 데이터 로드
 export const fetchFromGoogleSheets = async (): Promise<{
   students?: Student[];
   records?: Record<string, AttendanceRecord>;
   updatedAt?: string;
 } | null> => {
-  try {
-    const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=getData&_t=${Date.now()}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data;
-  } catch (err) {
-    return null;
-  }
+  return new Promise((resolve) => {
+    const callbackName = 'googleSyncCallback_' + Math.round(100000 * Math.random());
+    const script = document.createElement('script');
+    
+    // 5초 타임아웃 설정
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      resolve(null);
+    }, 5000);
+
+    const cleanup = () => {
+      delete (window as any)[callbackName];
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+      clearTimeout(timeoutId);
+    };
+
+    (window as any)[callbackName] = (data: any) => {
+      cleanup();
+      resolve(data);
+    };
+
+    script.src = `${GOOGLE_SCRIPT_URL}?action=getData&callback=${callbackName}&_t=${Date.now()}`;
+    script.onerror = () => {
+      cleanup();
+      resolve(null);
+    };
+
+    document.body.appendChild(script);
+  });
 };
