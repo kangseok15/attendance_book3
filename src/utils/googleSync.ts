@@ -1,5 +1,6 @@
 import { Student, AttendanceRecord } from '../types/attendance';
 
+// 👇 여기에 복사한 '개인 계정 웹 앱 URL'을 정확히 붙여넣습니다.
 export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwjSK4tikaVt5DICqLnk2apCpa1iAxfhvjijyTs4h8PECrZfRo_LjkC34iY1JEYcT5wmg/exec';
 
 export const syncToGoogleSheets = async (data: {
@@ -34,7 +35,6 @@ export const fetchFromGoogleSheets = async (): Promise<{
     const callbackName = 'googleSyncCallback_' + Math.round(1000000 * Math.random());
     const script = document.createElement('script');
     
-    // 6초 타임아웃
     const timeoutId = setTimeout(() => {
       cleanup();
       resolve(null);
